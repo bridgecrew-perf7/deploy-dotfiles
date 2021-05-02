@@ -9,14 +9,6 @@
 # placeholder. Wonder if we can check if the next CWORD + 1 starts with a '-*',
 # then if so assume it's a path to the base file. Example:
 # ./deploy-dotfiles --new ~/.vimrc
-#
-# This should definitely be multi-pass. Several validation passes of the
-# directory structure entirely. Then passes over each file within the that
-# file's path: ./config/.../vimrc/*
-#
-# Ugh, do we actually want to make this a lexer, just to scan for our {{...}}
-# keys? Could certainly just read line by line, then look up the value, fill it
-# in, and write the line back. Maybe I'll try a very basic lexer first.
 
 #──────────────────────────────────( prereqs )──────────────────────────────────
 # Colors:
@@ -43,10 +35,11 @@ PROGDIR="$( cd "$(dirname "${BASH_SOURCE[0]}")" ; pwd )"
 # TODO: This is for testing, so everything can stay in the same directory. Will
 #       eventually move over to it's home of ~/.config/hre-utils/deploy-dotfiles
 #CONFDIR="${XDG_CONFIG_HOME:-~/.config}/hre-utils/deploy-dotfiles"
-CONFDIR="${PROGDIR}/config/hre-utils/deploy-dotfiles"
+CONFDIR="${PROGDIR}"
+CONFFILE="${CONFDIR}/config.sh"
 
 #────────────────────────────────( validation )─────────────────────────────────
-#if [[ ! -e "${CONFDIR}/files/*/base" ]] ; then
+#if [[ ! -e "${PROGDIR}/files/*/base" ]] ; then
 #   echo "Not all files in config/files/ have a 'base'."
 #   exit 1
 #fi
@@ -99,44 +92,9 @@ function debug_tokens {
 }
 
 #═══════════════════════════════════╡ LEXER ╞═══════════════════════════════════
-#───────────────────────────────( while read v1 )───────────────────────────────
-#cur_type=''
-#buffer=''
-#
-#while read -r -N1 c ; do
-#   if [[ $c == '{' ]] ; then
-#      # Flush current buffer to token:
-#      Token $cur_type "$buffer"
-#      cur_type='OPEN'
-#      buffer="$c"
-#   elif [[ $c == '}' ]] ; then
-#      Token $cur_type "$buffer"
-#      cur_type='CLOSE'
-#      buffer="$c"
-#   else
-#      if [[ $cur_type == 'OPEN' ]] ; then
-#         cur_type='KEY'
-#         buffer=''
-#      elif [[ $cur_type == 'CLOSE' ]] ; then
-#         cur_type='USERTEXT'
-#         buffer=''
-#      elif [[ $cur_type == 'KEY' ]] ; then
-#         cur_type='KEY'
-#      else
-#         cur_type='USERTEXT'
-#      fi
-#      buffer+="$c"
-#   fi
-#done < "${CONFDIR}/files/vimrc/base"
-#
-## Final buffer flush:
-#Token $cur_type "$buffer"
-#
-## Did it work??
-#debug_tokens
-#───────────────────────────────────( array )───────────────────────────────────
+
 # Scan forwards, filling found characters into a buffer.
-function fill_to {
+function fill {
    delim=$1
    declare -g buffer=''
 
@@ -145,11 +103,12 @@ function fill_to {
       local n="${chararray[$((idx+1))]}"
 
       buffer+="$c"
-      [[ "$n" == "$delim" ]] && break
+      [[ "$n" == [{}#] ]] && break
 
       idx=$((idx+1))
    done
 }
+
 
 # Load characters into array, so we may iterate over them (and look
 # forwards/backwards more easily):
@@ -165,9 +124,8 @@ while [[ $idx -lt $len ]] ; do
    c="${chararray[$idx]}"
 
    # Capture comments
-   if [[ "$c" == "$comment_start" ]] ; then
-      fill_to "${comment_end:-$'\n'}"
-      Token 'COMMENT' "$buffer"
+   if [[ "$c" == "#" ]] ; then
+      fill ; Token 'COMMENT' "$buffer"
 
    # Start block (or potentially a regular character)
    elif [[ "$c" == '{' ]] ; then
@@ -188,26 +146,100 @@ while [[ $idx -lt $len ]] ; do
       fi
 
       if [[ $last_type == 'OPEN' ]] ; then
-         fill_to '}'
-         Token 'KEY' "$buffer"
-      else
-         fill_to '{'
-         Token 'USERTEXT' "$buffer"
+         fill ; Token 'TEXT' "$buffer"
       fi
    fi
 
    idx=$(( idx+1 ))
 done
 
-# Buffer should be empty, if it's not at this point we have an unterminated
-# expression left hanging.
-#[[ -n $buffer ]] && {
-#   echo "UH OH, BUFFER CONTENTS NOT EMPTY."
-#   echo "FUCK YOU"
-#   echo "Contents: ($buffer)"
-#   exit 1
-#}
-
-debug_tokens
 
 #══════════════════════════════════╡ PARSER ╞═══════════════════════════════════
+#─────────────────────────────────( fill keys )─────────────────────────────────
+
+# New 'buffer' array to hold the tokens as we iterate over them.
+declare -a buffer
+declare -i level=0                  # <- Indentation level
+declare -i idx=0                    # <- Current index of tokens[]
+declare -i len=${#tokens[@]}        # <- len(tokens)
+
+function munch {
+   local tname="${tokens[$idx]}"
+   declare -n t="${tname}"
+
+   # Last 2 tokens read into the buffer. Don't need to check if they exist, as
+   # we only end up here if the $level is 2+. Must have at least two existing
+   # tokens.
+   declare -n p1="${buffer[-1]}"
+   declare -n p2="${buffer[-2]}"
+
+   local _n1="${tokens[$((idx+1))]}"
+   local _n2="${tokens[$((idx+2))]}"
+
+   # Next two tokens must exist:
+   [[ -z $_n1 || -z $_n2 ]] && return 1
+
+   # Nameref from the token name, to the Token itself
+   declare -n n1="$_n1"
+   declare -n n2="$_n2"
+
+   # Check both previous tokens are 'OPEN':
+   [[ ${p2[type]} != 'OPEN' && ${p1[value]} != 'OPEN' ]] && return 1
+
+   # Check both next tokens are 'CLOSE':
+   [[ ${n1[type]} != 'CLOSE' && ${n2[value]} != 'CLOSE' ]] && return 1
+
+
+   # Going to need to both pop 5 tokens out of the middle of the tokens[] stack,
+   declare -a _lower=( "${tokens[@]::$((idx-3))}" )
+   declare -a _upper=( "${tokens[@]:$((idx+3)):$(($len-$idx))}" )
+   # TODO: Really need to draft out this piece at a small scale. Test to ensure
+   #       it's actually doing what I think it does.
+
+   tokens=( "${_lower[@]}" )
+
+   # Create new token as 'TEXT', with the value set to the output of our dict
+   # lookup value. For now, for testing (TODO), setting to a static so we can
+   # validate it's working:
+   #Token 'TEXT' "$(lookup "${t[value]}")"
+   Token 'TEXT' "$(lookup "--------")"
+
+   # Concat the upper bound back on after the newly inserted Token.
+   for t in "${_upper[@]}" ; do
+      tokens+=( "$t" )
+   done
+
+   # Declare new length of tokens[]
+   len=${#tokens[@]}
+
+   unset buffer[-1]
+   unset buffer[-1]
+
+   # Reset idx back down to the position of the newly created Token:
+   (( idx-2 ))
+   (( level-2 ))
+
+   return 0
+}
+
+
+while [[ $idx -lt $len ]] ; do
+   token_name="${tokens[$idx]}"
+   declare -n token="${token_name}"
+
+   # Track current indentation level.
+   [[ ${token[type]} == 'OPEN'  ]] && ((level++))
+   [[ ${token[type]} == 'CLOSE' ]] && ((level--))
+
+   # Tokens can only occur at 2+. No need to look at text <2.
+   if [[ $level -ge 2 || ${token[type]} == 'TEXT' ]] ; then
+      munch && continue
+   fi
+
+   buffer+=( $token_name )
+   ((idx++))
+done
+
+
+#──────────────────────────────( strip comments )───────────────────────────────
+#──────────────────────────────( strip newlines )───────────────────────────────

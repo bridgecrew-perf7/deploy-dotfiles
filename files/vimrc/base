@@ -1,0 +1,11 @@
+set softtabstop=3
+
+# Comment
+set {{shiftwidth}}  # EOL comment
+set {{tabstop}}#Comment
+set expandtab
+
+set {{mismatched}
+set {{{triple}}}
+
+set { {{this}} } = that
