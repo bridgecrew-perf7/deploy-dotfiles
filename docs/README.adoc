@@ -1,0 +1,40 @@
+= Deploy Dotfiles
+
+This project aims to simplify deploying (potentially variable) dotfiles across multiple machines.
+
+
+== The Problem
+I'm often using multiple Linux distributions at home, and macOS at work.
+My `.bashrc` must thus be slightly different across all of them.
+(Accounting for BSD `ls` options, or different package manager aliases for example.).
+
+
+== The Solution
+Each dotfile has a 'base' file, an 'options' file, and an 'additions' directory.
+Like so:
+
+.Directory Tree
+[source]
+----
+./filetype
+  ├─ additions/
+  │  ├─ file1
+  │  └─ file2
+  ├─ base
+  └─ options
+----
+
+.Description
+`base`::
+ Contains the core config, with variables representing differences
+`options`::
+ Map of variable name -> value, dependent on your current system '`type`'
+`additions/`::
+   When more than just a variable name is neccessary, additional files can be sourced
+
+
+== Lexer
+I'd begun to write a very similar project previously in Python.
+Given my recent interest in learning to write a lexer & parser, why not solidify my knowledge writing one in Bash.
+To be clear, I don't think a lexer is actually necessary here in any capacity.
+The majority of this utility could be a half-dozen line `sed` script.

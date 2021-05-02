@@ -1,0 +1,9 @@
+set softtabstop=3
+
+set {{shiftwidth}}
+set {{tabstop}}
+set expandtab
+
+set something-else=true
+
+set {{this}}=that
