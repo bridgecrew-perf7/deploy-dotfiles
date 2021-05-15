@@ -9,3 +9,4 @@ set {{mismatched}
 set {{{triple}}}
 
 set { {{this}} } = that
+{{EOF}}

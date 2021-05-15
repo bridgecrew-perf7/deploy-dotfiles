@@ -1,6 +1,8 @@
 #!/bin/bash
 # changelog
 #  2021-04-30  :: Created
+#  2021-05-14  :: Improved token generation (now uses globally incrementing #,
+#                 raerpb len(tokens)--more robust) and improved parser.
 
 #───────────────────────────────────( notes )───────────────────────────────────
 # Should have a CLI option to add a new config file more easily. Will
@@ -75,6 +77,8 @@ function debug {
 # Array for holding the names of the dynamically generated associative arrays
 # with token properties.
 declare -a TOKENS
+declare -i TOKEN_IDX=0
+declare LAST_CREATED_TOKEN
 
 function Token {
    # Token types:
@@ -90,14 +94,14 @@ function Token {
    [[ -z $value ]] && return 0
 
    # Create name for new token{}, & indexed pointer to it in the tokens[] list:
-   tnum=${#TOKENS[@]}
-   tname="Token_${tnum}"
+   tname="Token_${TOKEN_IDX}" ; ((TOKEN_IDX++))
    TOKENS+=( $tname )
 
    # Create token, and nameref to it so we can assign values based on the
    # dynamic name:
    declare -gA $tname
    declare -n t=$tname
+   LAST_CREATED_TOKEN=$tname
 
    t[type]="$type"
    t[value]="$value"
@@ -188,70 +192,54 @@ done
 
 # New 'buffer' array to hold the tokens as we iterate over them.
 unset buffer ; declare -a buffer
-declare -i level=0                  # <- Indentation level
+declare -i level=0                  # <- OPEN 'indentation' level
 declare -i idx=0                    # <- Current index of tokens[]
-declare -i len=${#TOKENS[@]}        # <- len(tokens)
 
-function munch {
-   local tname="${TOKENS[$idx]}"
-   declare -n t="${tname}"
+function is_a_key {
+   # Must be of type "text"
+   [[ ! ${token[type]} == 'TEXT' ]] && return 1
 
-   # Last 2 tokens read into the buffer. Don't need to check if they exist, as
-   # we only end up here if the $level is 2+. Must have at least two existing
-   # tokens.
-   declare -n p1="${buffer[-1]}"
-   declare -n p2="${buffer[-2]}"
+   # Must have >=2 tokens left to process, and the current 'OPEN level' must be
+   # >=2, else we're not in a {{...}} block:
+   [[ ! ${#TOKENS[@]} -ge 2      ]] && return 1
+   [[ ! ${level}      -ge 2      ]] && return 1
 
-   local _n1="${TOKENS[$((idx+1))]}"
-   local _n2="${TOKENS[$((idx+2))]}"
+   declare -n b_2=${buffer[-1]} b_1=${buffer[-2]}
+   declare -n t_1=${TOKENS[$((idx+1))]}  t_2=${TOKENS[$((idx+2))]}
 
-   # Next two tokens must exist:
-   [[ -z $_n1 || -z $_n2 ]] && return 1
+   # Must start with 2x '{'...
+   [[ ! ${b_2[type]}  == 'OPEN'  ]] && return 1
+   [[ ! ${b_1[type]}  == 'OPEN'  ]] && return 1
 
-   # Nameref from the token name, to the Token itself
-   declare -n n1="$_n1"
-   declare -n n2="$_n2"
-
-   # Check both previous tokens are 'OPEN':
-   [[ ${p2[type]} != 'OPEN' && ${p1[value]}  != 'OPEN'  ]] && return 1
-
-   # Check both next tokens are 'CLOSE':
-   [[ ${n1[type]} != 'CLOSE' && ${n2[value]} != 'CLOSE' ]] && return 1
-
-   # Going to need to both pop 5 tokens out of the middle of the tokens[] stack,
-   declare -a _lower=( "${TOKENS[@]::$((idx-3))}" )
-   declare -a _upper=( "${TOKENS[@]:$((idx+3)):$(($len-$idx))}" )
-   # TODO: Really need to draft out this piece at a small scale. Test to ensure
-   #       it's actually doing what I think it does.
-
-   TOKENS=( "${_lower[@]}" )
-
-   # Create new token as 'TEXT', with the value set to the output of our dict
-   # lookup value. For now, for testing (TODO), setting to a static so we can
-   # validate it's working:
-   #Token 'TEXT' "$(lookup "${t[value]}")"
-   Token 'TEXT' "$(lookup "--------")"
-
-   # Concat the upper bound back on after the newly inserted Token.
-   for t in "${_upper[@]}" ; do
-      TOKENS+=( "$t" )
-   done
-
-   # Declare new length of tokens[]
-   len=${#TOKENS[@]}
-
-   unset buffer[-1]
-   unset buffer[-1]
-
-   # Reset idx back down to the position of the newly created Token:
-   (( idx-2 ))
-   (( level-2 ))
+   # ...and end with  2x '}'
+   [[ ! ${t_1[type]}  == 'CLOSE' ]] && return 1
+   [[ ! ${t_2[type]}  == 'CLOSE' ]] && return 1
 
    return 0
 }
 
 
-while [[ $idx -lt $len ]] ; do
+function munch {
+   # Pop last two from buffer[]
+   buffer=( "${buffer[@]::$((${#buffer[@]}-2))}" )
+
+   # Slice from 0 -> 2 before the current idx. Should be non-inclusive of both
+   # the opening '{{' characters:
+   local lower=( "${TOKENS[@]::$((idx-2))}" )
+
+   # Slice from 2 after current idx to end of array. Cuts out the closing '}}':
+   local upper=( "${TOKENS[@]:$((idx+2)):$((${#TOKENS[@]}-idx))}" )
+
+   # Create new token based on the dictionary lookup:
+   Token 'TEXT' '-----------'
+
+   # Add new value to TOKENS stack & buffer
+   TOKENS=( "${lower[@]}"  "$LAST_CREATED_TOKEN"  "${upper[@]}" )
+   buffer+=( "$LAST_CREATED_TOKEN" )
+}
+
+
+while [[ $idx -lt ${#TOKENS[@]} ]] ; do
    token_name="${TOKENS[$idx]}"
    declare -n token="${token_name}"
 
@@ -259,16 +247,30 @@ while [[ $idx -lt $len ]] ; do
    [[ ${token[type]} == 'OPEN'  ]] && ((level++))
    [[ ${token[type]} == 'CLOSE' ]] && ((level--))
 
-   # Tokens can only occur at indent >= 2:
-   #if [[ $level -ge 2 || ${token[type]} == 'TEXT' ]] ; then
-   #   munch && continue
-   #fi
+   if is_a_key ; then
+      munch
+   else
+      buffer+=( $token_name )
+   fi
 
-   buffer+=( $token_name )
    ((idx++))
-
-   #echo "($level) │ ${token[value]}"
 done
+
 
 #──────────────────────────────( strip comments )───────────────────────────────
 #──────────────────────────────( strip newlines )───────────────────────────────
+
+for _v in "${buffer[@]}" ; do
+   declare -n v="$_v"
+   printf -- "${v[value]}"
+done
+
+echo
+
+# TODO;CURRENT;
+# Do we actually need the intermediate buffer? Now that we've changed how tokens
+# are generated, and they're not based on the length of the TOKENS array, we
+# should be able to just modify in-place. Should drastically simplify the checks
+# we need to perform as well.
+#
+# Need to also add a `((level-2))` to the end of `munch()`
