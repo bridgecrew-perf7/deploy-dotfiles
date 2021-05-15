@@ -478,29 +478,52 @@ Like so:</p>
   └─ options</code></pre>
 </div>
 </div>
-<div class="dlist">
+<div class="hdlist">
 <div class="title">Description</div>
-<dl>
-<dt class="hdlist1"><code>base</code></dt>
-<dd>
+<table>
+<tr>
+<td class="hdlist1">
+<code>./base</code>
+</td>
+<td class="hdlist2">
 <p>Contains the core config, with variables representing differences</p>
-</dd>
-<dt class="hdlist1"><code>options</code></dt>
-<dd>
-<p>Map of variable name &#8594; value, dependent on your current system &#8216;type&#8217;</p>
-</dd>
-<dt class="hdlist1"><code>additions/</code></dt>
-<dd>
+</td>
+</tr>
+<tr>
+<td class="hdlist1">
+<code>./options</code>
+</td>
+<td class="hdlist2">
+<p>Map of variable name &#8658; value, dependent on your current system &#8216;type&#8217;</p>
+</td>
+</tr>
+<tr>
+<td class="hdlist1">
+<code>./additions/</code>
+</td>
+<td class="hdlist2">
 <p>When more than just a variable name is neccessary, additional files can be sourced</p>
-</dd>
-</dl>
+</td>
+</tr>
+</table>
+</div>
+</div>
+</div>
+<div class="sect1">
+<h2 id="_lexer">Lexer</h2>
+<div class="sectionbody">
+<div class="paragraph">
+<p>I&#8217;d begun to write a very similar project previously in Python.
+Given my recent interest in learning to write a lexer &amp; parser, why not solidify my knowledge writing one in Bash.
+To be clear, I don&#8217;t think a lexer is actually necessary here in any capacity.
+The majority of this utility could be a half-dozen line <code>sed</code> script.</p>
 </div>
 </div>
 </div>
 </div>
 <div id="footer">
 <div id="footer-text">
-Last updated 2021-04-30 22:59:01 -0700
+Last updated 2021-05-14 19:22:59 -0700
 </div>
 </div>
 </body>

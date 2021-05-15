@@ -11,6 +11,8 @@
 # ./deploy-dotfiles --new ~/.vimrc
 
 #──────────────────────────────────( prereqs )──────────────────────────────────
+_debug=false
+
 # Colors:
 rst=$(tput sgr0)                                   # Reset
 bk="$(tput setaf 0)"                               # Black
@@ -38,6 +40,30 @@ PROGDIR="$( cd "$(dirname "${BASH_SOURCE[0]}")" ; pwd )"
 CONFDIR="${PROGDIR}"
 CONFFILE="${CONFDIR}/config.sh"
 
+function debug {
+   local lineno=${BASH_LINENO[0]}
+   local fname=$(basename "${BASH_SOURCE[0]}")
+   local date=$(date '+%Y/%b/%d %T')
+
+   local text color
+   if [[ $# -gt 1 ]] ; then
+      case $1 in
+         debug|DEBUG)   color="${cy}" ;;
+         warn|WARN)     color="${yl}" ;;
+         crit|CRIT)     color="${brd}" ;;
+         *)             color="${wh}" ;;
+      esac
+      text="$2"
+   else
+      text="$1"
+   fi
+
+   $_debug && {
+      printf "[${fname%.*}] $date, ln.%04d\n"  $lineno
+      printf " ${color}└── ${text}${rst}\n"
+   }
+}
+
 #────────────────────────────────( validation )─────────────────────────────────
 #if [[ ! -e "${PROGDIR}/files/*/base" ]] ; then
 #   echo "Not all files in config/files/ have a 'base'."
@@ -48,14 +74,13 @@ CONFFILE="${CONFDIR}/config.sh"
 
 # Array for holding the names of the dynamically generated associative arrays
 # with token properties.
-declare -a tokens
+declare -a TOKENS
 
 function Token {
    # Token types:
    #  OPEN
-   #  KEY
+   #  TEXT
    #  CLOSE
-   #  USERTEXT
 
    local type="$1"
    local value="$2"
@@ -65,9 +90,9 @@ function Token {
    [[ -z $value ]] && return 0
 
    # Create name for new token{}, & indexed pointer to it in the tokens[] list:
-   tnum=${#tokens[@]}
+   tnum=${#TOKENS[@]}
    tname="Token_${tnum}"
-   tokens+=( $tname )
+   TOKENS+=( $tname )
 
    # Create token, and nameref to it so we can assign values based on the
    # dynamic name:
@@ -76,11 +101,13 @@ function Token {
 
    t[type]="$type"
    t[value]="$value"
+
+   debug "Created Token(${t[type]}, ${t[value]})"
 }
 
 
 function debug_tokens {
-   for tname in "${tokens[@]}" ; do
+   for tname in "${TOKENS[@]}" ; do
       declare -n tref=$tname
       local col="${cy}"
       [[ ${tref[type]} == 'OPEN'  ]] && col="${bl}"
@@ -107,6 +134,8 @@ function fill {
 
       idx=$((idx+1))
    done
+
+   debug "Buffer filled: [$buffer]"
 }
 
 
@@ -140,8 +169,8 @@ while [[ $idx -lt $len ]] ; do
       # If there are tokens in the stack, get the type of the last token
       # appended to the stack. Must first check if it exists, or subscripting
       # 'tokens' will fail:
-      if [[ ${#tokens[@]} -gt 0 ]] ; then
-         declare -n last_token="${tokens[-1]}"
+      if [[ ${#TOKENS[@]} -gt 0 ]] ; then
+         declare -n last_token="${TOKENS[-1]}"
          last_type="${last_token[type]}"
       fi
 
@@ -158,13 +187,13 @@ done
 #─────────────────────────────────( fill keys )─────────────────────────────────
 
 # New 'buffer' array to hold the tokens as we iterate over them.
-declare -a buffer
+unset buffer ; declare -a buffer
 declare -i level=0                  # <- Indentation level
 declare -i idx=0                    # <- Current index of tokens[]
-declare -i len=${#tokens[@]}        # <- len(tokens)
+declare -i len=${#TOKENS[@]}        # <- len(tokens)
 
 function munch {
-   local tname="${tokens[$idx]}"
+   local tname="${TOKENS[$idx]}"
    declare -n t="${tname}"
 
    # Last 2 tokens read into the buffer. Don't need to check if they exist, as
@@ -173,8 +202,8 @@ function munch {
    declare -n p1="${buffer[-1]}"
    declare -n p2="${buffer[-2]}"
 
-   local _n1="${tokens[$((idx+1))]}"
-   local _n2="${tokens[$((idx+2))]}"
+   local _n1="${TOKENS[$((idx+1))]}"
+   local _n2="${TOKENS[$((idx+2))]}"
 
    # Next two tokens must exist:
    [[ -z $_n1 || -z $_n2 ]] && return 1
@@ -184,19 +213,18 @@ function munch {
    declare -n n2="$_n2"
 
    # Check both previous tokens are 'OPEN':
-   [[ ${p2[type]} != 'OPEN' && ${p1[value]} != 'OPEN' ]] && return 1
+   [[ ${p2[type]} != 'OPEN' && ${p1[value]}  != 'OPEN'  ]] && return 1
 
    # Check both next tokens are 'CLOSE':
    [[ ${n1[type]} != 'CLOSE' && ${n2[value]} != 'CLOSE' ]] && return 1
 
-
    # Going to need to both pop 5 tokens out of the middle of the tokens[] stack,
-   declare -a _lower=( "${tokens[@]::$((idx-3))}" )
-   declare -a _upper=( "${tokens[@]:$((idx+3)):$(($len-$idx))}" )
+   declare -a _lower=( "${TOKENS[@]::$((idx-3))}" )
+   declare -a _upper=( "${TOKENS[@]:$((idx+3)):$(($len-$idx))}" )
    # TODO: Really need to draft out this piece at a small scale. Test to ensure
    #       it's actually doing what I think it does.
 
-   tokens=( "${_lower[@]}" )
+   TOKENS=( "${_lower[@]}" )
 
    # Create new token as 'TEXT', with the value set to the output of our dict
    # lookup value. For now, for testing (TODO), setting to a static so we can
@@ -206,11 +234,11 @@ function munch {
 
    # Concat the upper bound back on after the newly inserted Token.
    for t in "${_upper[@]}" ; do
-      tokens+=( "$t" )
+      TOKENS+=( "$t" )
    done
 
    # Declare new length of tokens[]
-   len=${#tokens[@]}
+   len=${#TOKENS[@]}
 
    unset buffer[-1]
    unset buffer[-1]
@@ -224,22 +252,23 @@ function munch {
 
 
 while [[ $idx -lt $len ]] ; do
-   token_name="${tokens[$idx]}"
+   token_name="${TOKENS[$idx]}"
    declare -n token="${token_name}"
 
    # Track current indentation level.
    [[ ${token[type]} == 'OPEN'  ]] && ((level++))
    [[ ${token[type]} == 'CLOSE' ]] && ((level--))
 
-   # Tokens can only occur at 2+. No need to look at text <2.
-   if [[ $level -ge 2 || ${token[type]} == 'TEXT' ]] ; then
-      munch && continue
-   fi
+   # Tokens can only occur at indent >= 2:
+   #if [[ $level -ge 2 || ${token[type]} == 'TEXT' ]] ; then
+   #   munch && continue
+   #fi
 
    buffer+=( $token_name )
    ((idx++))
-done
 
+   #echo "($level) │ ${token[value]}"
+done
 
 #──────────────────────────────( strip comments )───────────────────────────────
 #──────────────────────────────( strip newlines )───────────────────────────────

@@ -25,11 +25,12 @@ Like so:
 ----
 
 .Description
-`base`::
+[horizontal]
+`./base`::
  Contains the core config, with variables representing differences
-`options`::
- Map of variable name -> value, dependent on your current system '`type`'
-`additions/`::
+`./options`::
+ Map of variable name => value, dependent on your current system '`type`'
+`./additions/`::
    When more than just a variable name is neccessary, additional files can be sourced
 
 
