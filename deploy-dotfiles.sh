@@ -3,6 +3,9 @@
 #  2021-04-30  :: Created
 #  2021-05-14  :: Improved token generation (now uses globally incrementing #,
 #                 raerpb len(tokens)--more robust) and improved parser.
+#  2021-05-16  :: Switched all config files to .cfg's, as to parse with mk-conf.
+#                 Ability to override global config via per-directory [limited]
+#                 heading.
 #
 #───────────────────────────────────( todo )────────────────────────────────────
 # Should have a CLI option to add a new config file more easily. Will
@@ -48,29 +51,30 @@ wh="$(tput setaf 7)"  ;  bwh="$(tput bold)${wh}"   # White   ;  Bright White
 PROGDIR="$( cd "$(dirname "${BASH_SOURCE[0]}")" ; pwd )"
 
 # Directory in which we're currently working, e.g., ./files/vimrc
-declare -g WORKING_DIR
+declare WORKING_DIR
 
 # Array for holding the names of the dynamically generated associative arrays
 # with token properties.
 declare -a TOKENS
 declare -i TOKEN_IDX=0
-declare -g LAST_CREATED_TOKEN
+declare LAST_CREATED_TOKEN
 
 # Error tracking:
+declare -a ERRORS_VALIDATION
+declare -a ERRORS_RUNTIME
+
 declare -a ERR_KEY_NOT_FOUND
+declare -a ERR_LIMITED_CONFIG_NOT_FOUND
+declare -a ERR_MISSING_REQUIRED_CONFIG_SECTION
+
 
 #───────────────────────────────( import config )───────────────────────────────
-declare -g CONFDIR="${PROGDIR}"
-declare -g GCONF="${CONFDIR}/config.sh"
-# Global config file, in contrast to a locally loaded config file on a per-
-# directory basis, specified as `FCONF`.
-#
 # TODO: This is for testing, so everything can stay in the same directory. Will
 #       eventually move over to it's home of ~/.config/hre-utils/deploy-dotfiles
 #CONFDIR="${XDG_CONFIG_HOME:-~/.config}/hre-utils/deploy-dotfiles"
 #mkdir -p "$CONFDIR"
-
-[[ -e "${GCONF}" ]] && source "${GCONF}"
+declare -g CONFDIR="${PROGDIR}"
+declare -g GCONF="${CONFDIR}/config.cfg"
 
 #──────────────────────────────( tmp & debugging )──────────────────────────────
 _debug=false
@@ -116,6 +120,31 @@ function debug_output {
       declare -n v="$_v"
       printf -- "${v[value]}"
    done
+}
+
+
+#───────────────────────────────────( utils )───────────────────────────────────
+function load_config {
+   #  1. Global config file
+   global __activate__
+
+   #  2. Limited config from the working directory
+   local LCONF="${WORKING_DIR}/config.cfg"
+   if [[ ! -e "$LCONF" ]] ; then
+      ERR_LIMITED_CONFIG_NOT_FOUND+=( "${wdir}" )
+      return 1
+   fi
+
+   .load-conf "$LCONF"
+   if ! command -v 'classes' &>/dev/null ; then
+      ERR_MISSING_REQUIRED_CONFIG_SECTION+=( "${wdir}[classes]" )
+      return 2
+   fi
+
+   # If user supplied '[limited]' section, overwrite global:
+   command -v 'limited' &>/dev/null && limited __activate__
+
+   return 0
 }
 
 
@@ -191,7 +220,6 @@ function lex {
 
 
 #══════════════════════════════════╡ PARSER ╞═══════════════════════════════════
-#─────────────────────────────────( fill keys )─────────────────────────────────
 function is_a_key {
    # Must be of type "text"
    [[ ! ${token[type]} == 'TEXT' ]] && return 2
@@ -229,7 +257,7 @@ function munch {
 
    # Look up value in options.ini
    local dict="${WORKING_DIR}/options"
-   local value=$( class $class "${token[value]}")
+   local value=$( classes $class "${token[value]}")
 
    if [[ -n $value ]] ; then
       Token 'TEXT' "$value"
@@ -242,17 +270,16 @@ function munch {
 }
 
 
-#──────────────────────────────( strip comments )───────────────────────────────
 function strip_comments {
    echo pass
 }
 
-#──────────────────────────────( strip newlines )───────────────────────────────
+
 function strip_newlines {
    echo pass
 }
 
-#───────────────────────────────────( parse )───────────────────────────────────
+
 function parse {
    declare -gi idx=0
 
@@ -275,10 +302,6 @@ function parse {
 
 
 #══════════════════════════════════╡ DEPLOY ╞═══════════════════════════════════
-# This is where the actually deployment stuff will go. Largely the same thing as
-# the `debug_output` function, but pipes to the destination file after
-# potentially backing up the existing file.
-#──────────────────────────────────( backup )───────────────────────────────────
 function backup_existing {
    local cmd
 
@@ -299,7 +322,7 @@ function backup_existing {
    esac
 }
 
-#───────────────────────────────────( write )───────────────────────────────────
+
 function deploy {
    case $deploy_mode in
       slink) cmd='ln -sr' ;;
@@ -313,9 +336,13 @@ function deploy {
 
 
 #═══════════════════════════════════╡ MAIN ╞════════════════════════════════════
-#─────────────────────────────────( argparse )──────────────────────────────────
 while [[ $# -gt 0 ]] ; do
    case $1 in
+      -h|--help)
+            echo "Usage doesn't yet exist. [-h] [--debug 0-3]."
+            exit 0
+            ;;
+
       --debug)
             shift
             _debug=true
@@ -329,19 +356,49 @@ while [[ $# -gt 0 ]] ; do
    esac
 done
 
-#──────────────────────────────────( iterdir )──────────────────────────────────
+if [[ -e "${GCONF}" ]] ; then
+   .load-conf "${GCONF}"
+else
+   debug 3 "Couldn't find global configurataion file."
+   exit 1
+fi
+
 for wdir in $(ls "${CONFDIR}/files") ; do
-   # Array for holding the names of the dynamically generated associative arrays
-   # with token properties. Reset global variables on each run:
+   # Reset global variables on each run:
    TOKENS=() ; TOKEN_IDX=0 ; LAST_CREATED_TOKEN=
    WORKING_DIR="${CONFDIR}/files/$wdir"
-
-   .load-conf "${WORKING_DIR}/options.cfg"
 
    if [[ ! -e "${WORKING_DIR}/base" ]] ; then
       debug 2 "No \`base\` file found in ${WORKING_DIR}"
       continue
    fi
 
-   lex ; parse ; debug_output
+   load_config ; [[ $? -ne 0 ]] && continue
+   # Loads 1) options file, 2) global config, 3) local config
+
+   lex ; parse
+   # Reads characters, makes tokens. Read tokens, fills in keys.
+
+   debug_output
+   # Reads tokens, makes text.
 done
+
+
+if [[ ${#ERR_LIMITED_CONFIG_NOT_FOUND} -gt 0 ]] ; then
+   declare c_list
+   for c in "${ERR_LIMITED_CONFIG_NOT_FOUND[@]}" ; do
+      c_list+="${c_list:+, }$c"
+   done
+   errors="Missing config.cfg file: $c_list"
+fi ; ERRORS_RUNTIME+=( "$errors" )
+
+if [[ ${#ERRORS_RUNTIME[@]} -gt 0 ]] ; then
+   echo "Errors encountered:"
+   for idx in "${!ERRORS_RUNTIME[@]}" ; do
+      error="${ERRORS_RUNTIME[$idx]}"
+      printf '   %02d. %s\n'  "$((idx+1))"  "$error"
+   done
+fi
+
+
+# vim:ft=bash:foldmethod=marker:commentstring=#%s

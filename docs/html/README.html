@@ -5,7 +5,7 @@
 <meta http-equiv="X-UA-Compatible" content="IE=edge">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="generator" content="Asciidoctor 2.0.12">
-<title>Deploy Dotfiles</title>
+<title>deploy-dotfiles.sh</title>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Open+Sans:300,300italic,400,400italic,600,600italic%7CNoto+Serif:400,400italic,700,700italic%7CDroid+Sans+Mono:400,700">
 <style>
 /* Asciidoctor default stylesheet | MIT License | https://asciidoctor.org */
@@ -440,90 +440,80 @@ body.book #toc,body.book #preamble,body.book h1.sect0,body.book .sect1>h2{page-b
 </head>
 <body class="article">
 <div id="header">
-<h1>Deploy Dotfiles</h1>
+<h1>deploy-dotfiles.sh</h1>
 </div>
 <div id="content">
 <div id="preamble">
 <div class="sectionbody">
 <div class="paragraph">
-<p>This project aims to simplify deploying (potentially variable) dotfiles across multiple machines.</p>
+<p>Simplified multi-platform dotfile management.</p>
 </div>
+</div>
+<div id="toc" class="toc">
+<div id="toctitle">Table of Contents</div>
+<ul class="sectlevel1">
+<li><a href="#_installation">Installation</a></li>
+<li><a href="#_usage">Usage</a></li>
+<li><a href="#_but_why">"But why?"</a></li>
+</ul>
 </div>
 </div>
 <div class="sect1">
-<h2 id="_the_problem">The Problem</h2>
+<h2 id="_installation">Installation</h2>
 <div class="sectionbody">
-<div class="paragraph">
-<p>I&#8217;m often using multiple Linux distributions at home, and macOS at work.
-My <code>.bashrc</code> must thus be slightly different across all of them.
-(Accounting for BSD <code>ls</code> options, or different package manager aliases for example.).</p>
+<div class="olist arabic">
+<div class="title">External dependencies</div>
+<ol class="arabic">
+<li>
+<p><code>gawk</code></p>
+</li>
+<li>
+<p><code>sed</code></p>
+</li>
+</ol>
 </div>
-</div>
-</div>
-<div class="sect1">
-<h2 id="_the_solution">The Solution</h2>
-<div class="sectionbody">
-<div class="paragraph">
-<p>Each dotfile has a 'base' file, an 'options' file, and an 'additions' directory.
-Like so:</p>
+<div class="olist arabic">
+<div class="title">Other dependencies</div>
+<ol class="arabic">
+<li>
+<p><code>@hre-utils/mk-conf.sh</code></p>
+</li>
+</ol>
 </div>
 <div class="listingblock">
-<div class="title">Directory Tree</div>
+<div class="title">Install</div>
 <div class="content">
-<pre class="highlight"><code>./filetype
-  ├─ additions/
-  │  ├─ file1
-  │  └─ file2
-  ├─ base
-  └─ options</code></pre>
+<pre class="highlight"><code class="language-bash" data-lang="bash"># Assuming an ubuntu system...
+
+#  1. Install general deps
+sudo apt-get update -y
+sudo apt-get upgrade -y
+sudo apt-get install gawk sed
+
+#  2. Install script deps
+git clone https://github.com/hre-utils/mk-conf
+chmod +x ./mk-conf/mk-conf.sh
+ln -s ./mk-conf/mk-conf.sh /usr/local/bin</code></pre>
 </div>
-</div>
-<div class="hdlist">
-<div class="title">Description</div>
-<table>
-<tr>
-<td class="hdlist1">
-<code>./base</code>
-</td>
-<td class="hdlist2">
-<p>Contains the core config, with variables representing differences</p>
-</td>
-</tr>
-<tr>
-<td class="hdlist1">
-<code>./options</code>
-</td>
-<td class="hdlist2">
-<p>Map of variable name &#8658; value, dependent on your current system &#8216;type&#8217;</p>
-</td>
-</tr>
-<tr>
-<td class="hdlist1">
-<code>./additions/</code>
-</td>
-<td class="hdlist2">
-<p>When more than just a variable name is neccessary, additional files can be sourced</p>
-</td>
-</tr>
-</table>
 </div>
 </div>
 </div>
 <div class="sect1">
-<h2 id="_lexer">Lexer</h2>
+<h2 id="_usage">Usage</h2>
 <div class="sectionbody">
-<div class="paragraph">
-<p>I&#8217;d begun to write a very similar project previously in Python.
-Given my recent interest in learning to write a lexer &amp; parser, why not solidify my knowledge writing one in Bash.
-To be clear, I don&#8217;t think a lexer is actually necessary here in any capacity.
-The majority of this utility could be a half-dozen line <code>sed</code> script.</p>
+
 </div>
+</div>
+<div class="sect1">
+<h2 id="_but_why">"But why?"</h2>
+<div class="sectionbody">
+
 </div>
 </div>
 </div>
 <div id="footer">
 <div id="footer-text">
-Last updated 2021-05-14 19:22:59 -0700
+Last updated 2021-05-16 11:14:23 -0700
 </div>
 </div>
 </body>
