@@ -5,7 +5,7 @@
 # descriptive 'class' that accepts a common config. E.g., "macos" or "ubuntu".
 # Or maybe "personal" vs. "work". Impacts which configuration variables are
 # sourced from the config/files/$filetype/{options,additions}
-class=
+class='linux'
 
 # Methodology by which to 'deploy' the dotfiles to their respective location.
 #  slink :: `ln -sr` (symlink)

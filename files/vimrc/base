@@ -6,4 +6,4 @@ set {{tabstop}}#Comment
 set expandtab
 
 set { {{this}} } = that
-{{eol}}
+{{EOF}}

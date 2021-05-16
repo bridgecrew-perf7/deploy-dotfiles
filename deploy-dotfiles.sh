@@ -21,6 +21,8 @@
    exit 1
 }
 
+source "$(which mk-conf.sh)"
+
 # TODO: This will be later imported, not explicitly defined. `import mk-colors`
 # Colors:
 rst=$(tput sgr0)                                   # Reset
@@ -58,7 +60,7 @@ declare -a ERR_KEY_NOT_FOUND
 
 #───────────────────────────────( import config )───────────────────────────────
 declare -g CONFDIR="${PROGDIR}"
-declare -g GCONF="${CONFDIR}/config"
+declare -g GCONF="${CONFDIR}/config.sh"
 # Global config file, in contrast to a locally loaded config file on a per-
 # directory basis, specified as `FCONF`.
 #
@@ -66,6 +68,8 @@ declare -g GCONF="${CONFDIR}/config"
 #       eventually move over to it's home of ~/.config/hre-utils/deploy-dotfiles
 #CONFDIR="${XDG_CONFIG_HOME:-~/.config}/hre-utils/deploy-dotfiles"
 #mkdir -p "$CONFDIR"
+
+[[ -e "${GCONF}" ]] && source "${GCONF}"
 
 #──────────────────────────────( tmp & debugging )──────────────────────────────
 _debug=false
@@ -115,11 +119,6 @@ function debug_output {
 
 #═══════════════════════════════════╡ LEXER ╞═══════════════════════════════════
 function Token {
-   # Token types:
-   #  OPEN
-   #  TEXT
-   #  CLOSE
-
    local type="$1"
    local value="$2"
 
@@ -227,7 +226,10 @@ function munch {
    # *after* the closing '}}':
    local upper=( "${TOKENS[@]:$((idx+3)):$((${#TOKENS[@]}-idx))}" )
 
-   local value="$(get_value "${token[value]}")"
+   # Look up value in options.ini
+   local dict="${WORKING_DIR}/options"
+   local value=$( class $class "${token[value]}")
+
    if [[ -n $value ]] ; then
       Token 'TEXT' "$value"
    else
@@ -237,19 +239,6 @@ function munch {
 
    TOKENS=( "${lower[@]}"  "$LAST_CREATED_TOKEN"  "${upper[@]}" )
    ((level-2))
-}
-
-
-function get_value {
-   declare -A pretend_dict=(
-      [shiftwidth]='SHIFTWIDTH'
-      [tabstop]='TABSTOP'
-      [triple]='TRIPLE'
-      #[this]='THIS'
-      [eol]='<END>'
-   )
-
-   echo "${pretend_dict[$1]}"
 }
 
 #──────────────────────────────( strip comments )───────────────────────────────
@@ -314,9 +303,7 @@ function backup_existing {
 
 #───────────────────────────────────( write )───────────────────────────────────
 function deploy {
-
-
-   case
+   case $deploy_mode in
       slink) cmd='ln -sr' ;;
       hlink) cmd='ln -r'  ;;
       copy)  cmd='cp'     ;;
@@ -345,12 +332,17 @@ done
 
 #──────────────────────────────────( iterdir )──────────────────────────────────
 for wdir in $(ls "${CONFDIR}/files") ; do
+   # Array for holding the names of the dynamically generated associative arrays
+   # with token properties. Reset global variables on each run:
+   TOKENS=() ; TOKEN_IDX=0 ; LAST_CREATED_TOKEN=
    WORKING_DIR="${CONFDIR}/files/$wdir"
+
+   .load-conf "${WORKING_DIR}/options.cfg" 
 
    if [[ ! -e "${WORKING_DIR}/base" ]] ; then
       debug 2 "No \`base\` file found in ${WORKING_DIR}"
       continue
    fi
 
-   lex ; parse ; debug_output
+   lex ; parse ; debug_output ; exit
 done
