@@ -5,8 +5,5 @@ set {{shiftwidth}}  # EOL comment
 set {{tabstop}}#Comment
 set expandtab
 
-set {{mismatched}
-set {{{triple}}}
-
 set { {{this}} } = that
-{{EOF}}
+{{eol}}
