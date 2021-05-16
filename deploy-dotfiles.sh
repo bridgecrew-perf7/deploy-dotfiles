@@ -193,9 +193,6 @@ function lex {
 #══════════════════════════════════╡ PARSER ╞═══════════════════════════════════
 #─────────────────────────────────( fill keys )─────────────────────────────────
 function is_a_key {
-   # OPEN 'indentation' level less than 2 (cannot have '{{'):
-   [[ ! $level -ge 2 ]] && return 1
-
    # Must be of type "text"
    [[ ! ${token[type]} == 'TEXT' ]] && return 2
 
@@ -242,7 +239,6 @@ function munch {
    fi
 
    TOKENS=( "${lower[@]}"  "$LAST_CREATED_TOKEN"  "${upper[@]}" )
-   level=$(( level - 2 ))
 }
 
 
@@ -258,7 +254,7 @@ function strip_newlines {
 
 #───────────────────────────────────( parse )───────────────────────────────────
 function parse {
-   declare -gi level=0 idx=0
+   declare -gi idx=0
 
    # Tokens may only occur if concluded by: '}', '}'. Stop scanning if there are
    # not at least two subsequent tokens to read.
@@ -266,24 +262,11 @@ function parse {
       token_name="${TOKENS[$idx]}"
       declare -n token="${token_name}"
 
-      # Track current OPEN "indentation" level:
-      [[ ${token[type]} == 'OPEN'  ]] && ((level++))
-      [[ ${token[type]} == 'CLOSE' ]] && ((level--))
-
-      # XXX: Does global indentation level actually matter? To be thorough, I
-      #      want to say that it does. But realistically for parsing... no. We
-      #      can just as easily dip out on it entirely. Though now that it's not
-      #      working, I feel compelled intrinsically to fix it.
-
       if is_a_key ; then
          munch
-         continue
+      else
+         ((idx++))
       fi
-
-      # DEBUG
-      printf -- "$level :: ${token[value]//$'\n'/$'\n'     }\n"
-
-      ((idx++))
    done
 
    # [[ $strip_comments =~ ([Tt]rue|[Yy]es) ]] && strip_comments

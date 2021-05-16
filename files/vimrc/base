@@ -1,4 +1,6 @@
-set {{one}}
-set {{two}}
-set {{three}}
-set {{four}}
+# Begin ~/.vimrc
+set softtabstop=3
+set {{shiftwidth}}
+set {{tabstop}}
+
+set expandtab
