@@ -1,9 +1,4 @@
-set softtabstop=3
-
-# Comment
-set {{shiftwidth}}  # EOL comment
-set {{tabstop}}#Comment
-set expandtab
-
-set { {{this}} } = that
-{{EOF}}
+set {{one}}
+set {{two}}
+set {{three}}
+set {{four}}

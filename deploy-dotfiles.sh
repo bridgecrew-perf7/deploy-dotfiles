@@ -21,6 +21,7 @@
    exit 1
 }
 
+# TODO: source `import.sh`, then use `import` to source the rest
 source "$(which mk-conf.sh)"
 
 # TODO: This will be later imported, not explicitly defined. `import mk-colors`
@@ -117,6 +118,7 @@ function debug_output {
    done
 }
 
+
 #═══════════════════════════════════╡ LEXER ╞═══════════════════════════════════
 function Token {
    local type="$1"
@@ -187,19 +189,21 @@ function lex {
    done
 }
 
+
 #══════════════════════════════════╡ PARSER ╞═══════════════════════════════════
 #─────────────────────────────────( fill keys )─────────────────────────────────
 function is_a_key {
+   # OPEN 'indentation' level less than 2 (cannot have '{{'):
    [[ ! $level -ge 2 ]] && return 1
 
    # Must be of type "text"
    [[ ! ${token[type]} == 'TEXT' ]] && return 2
 
    declare -n before_2=${TOKENS[$((idx-1))]}    # <-.
-   declare -n before_1=${TOKENS[$((idx-2))]}    # <-+- Two preceding tokens
+   declare -n before_1=${TOKENS[$((idx-2))]}    #  <+- Two preceding tokens
 
    declare -n after_1=${TOKENS[$((idx+1))]}     # <-.
-   declare -n after_2=${TOKENS[$((idx+2))]}     # <-+- Two subsequent tokens
+   declare -n after_2=${TOKENS[$((idx+2))]}     #  <+- Two subsequent tokens
 
    # Must start with 2x '{'...
    [[ ${before_2[type]} != 'OPEN' || ${before_1[type]} != 'OPEN' ]] && {
@@ -238,8 +242,9 @@ function munch {
    fi
 
    TOKENS=( "${lower[@]}"  "$LAST_CREATED_TOKEN"  "${upper[@]}" )
-   ((level-2))
+   level=$(( level - 2 ))
 }
+
 
 #──────────────────────────────( strip comments )───────────────────────────────
 function strip_comments {
@@ -265,7 +270,18 @@ function parse {
       [[ ${token[type]} == 'OPEN'  ]] && ((level++))
       [[ ${token[type]} == 'CLOSE' ]] && ((level--))
 
-      is_a_key && munch
+      # XXX: Does global indentation level actually matter? To be thorough, I
+      #      want to say that it does. But realistically for parsing... no. We
+      #      can just as easily dip out on it entirely. Though now that it's not
+      #      working, I feel compelled intrinsically to fix it.
+
+      if is_a_key ; then
+         munch
+         continue
+      fi
+
+      # DEBUG
+      printf -- "$level :: ${token[value]//$'\n'/$'\n'     }\n"
 
       ((idx++))
    done
@@ -295,11 +311,10 @@ function backup_existing {
 
       *)    # Default option, moves existing file to ./backup/ directory, mildly
             # assuring a unique name:
-            local fname="$(basename "${dest}").$(date '+%s')"
+            local fname="$(basename "${dest}").$(stat --format '%W' ${dest})"
             mv "$dest" "${CONFDIR}/backup/${fname}" ;;
    esac
 }
-
 
 #───────────────────────────────────( write )───────────────────────────────────
 function deploy {
@@ -312,6 +327,7 @@ function deploy {
    esac
    debug 1 "Deploy method: \`$cmd\`"
 }
+
 
 #═══════════════════════════════════╡ MAIN ╞════════════════════════════════════
 #─────────────────────────────────( argparse )──────────────────────────────────
@@ -337,12 +353,12 @@ for wdir in $(ls "${CONFDIR}/files") ; do
    TOKENS=() ; TOKEN_IDX=0 ; LAST_CREATED_TOKEN=
    WORKING_DIR="${CONFDIR}/files/$wdir"
 
-   .load-conf "${WORKING_DIR}/options.cfg" 
+   .load-conf "${WORKING_DIR}/options.cfg"
 
    if [[ ! -e "${WORKING_DIR}/base" ]] ; then
       debug 2 "No \`base\` file found in ${WORKING_DIR}"
       continue
    fi
 
-   lex ; parse ; debug_output ; exit
+   lex ; parse ; debug_output
 done
