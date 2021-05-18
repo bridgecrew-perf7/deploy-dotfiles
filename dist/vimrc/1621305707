@@ -1,7 +1,6 @@
 # Begin ~/.vimrc
 set softtabstop=3
-set {{shiftwidth}}
-set {{tabstop}}
+set shiftwidth=3 (LINUX)
+set tabstop=3 (LINUX)
 
 set expandtab
-{{eof}}
