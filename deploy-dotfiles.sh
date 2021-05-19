@@ -6,20 +6,23 @@
 #  2021-05-16  :: Switched all config files to .cfg's, as to parse with mk-conf.
 #                 Ability to override global config via per-directory [base]
 #                 heading.
+#  2021-05-18  :: Standardized variable names, added 'base' diffing so we don't
+#                 re-run on already compiled files.
 #
 #───────────────────────────────────( todo )────────────────────────────────────
 # 1. [ ] CLI options:
 #        1. [X] "--new" Automatically create the requisite directory structure
 #        2. [ ] "--find" Echo path to the 'base` of a specified search term
-#        3. [ ] "--clean" Remove >3 files from each dir in ./dist. Pretty simple
+#        3. [X] "--clean" Remove >3 files from each dir in ./dist. Pretty simple
 #                         rm $(/usr/bin/ls -1 ./dist/*/* | sort | tail -n +3)
 #
 # 2. [ ] Reporting. Compile information during the run into a final report. Use
 #        a trap to ensure the report is actually written on exits or failure.
 #        Report should contain: 1) exit status, 2) run summary, 3) operations
-#        performed, 4) errors encountered.
+#        performed, 4) errors encountered. Use `less -r` to show with color
+#        escapes enabled.
 #
-# 3. [ ] Diff previously generated files. If there's no differences, no need to
+# 3. [X] Diff previously generated files. If there's no differences, no need to
 #        compile them again. Best way to do this might be a dotfile within each
 #        ./dist/$WDIR with a md5sum of the base file, and the filename it's
 #        created. Before running, we md5sum the 'base' file, grep the list to
@@ -27,6 +30,33 @@
 #
 # 4. [ ] Easier option for files that don't have any processing required. If it
 #        it something that's as simple as a 'cp' with no variables.
+#
+# 5. [ ] Re-work type :multiline and :text in mk-conf, such that we can specify
+#        longer sections of text to drop in. Though specifying files in
+#        ./files/$WDIR/additions/ may be a more elegant solution for long
+#        additions, 4-5 line chunks seem best via a :multiline entry.
+#
+# 6. [ ] Tokenize new text that's entered from the config.cfg file, such that
+#        we can properly strip newlines.
+#
+# 7. [X] Make consistent global variables for common paths. The names should be
+#        straightforward, memorable, and obviously distinct to which directory
+#        they refer.
+#
+#        Variable standards:
+#           GLOBAL_VARIABLES
+#           local_variables      (with exception of .cfg variables)
+#           __cli_parameters__
+#           _intermediate
+#
+# 8. [ ] Clean up terminology. We're referring to 'base' in like 3 different
+#        ways. As with variables, things should have one (and only one) clear
+#        name.
+#
+# 9. [ ] Create deployment script, move data to XDG_DATA_HOME or .local/share
+#
+# 10. [ ] Add `write` function. Similar to `debug`. For writing necessary output
+#         to the terminal. Will need to be quieted by '-q|--quiet'.
 
 #═══════════════════════════════════╡ BEGIN ╞═══════════════════════════════════
 #──────────────────────────────────( prereqs )──────────────────────────────────
@@ -67,8 +97,11 @@ PROGDIR="$( cd "$(dirname "${BASH_SOURCE[0]}")" ; pwd )"
 # a section in a report/logfile with a particular generated filed.
 declare RUNID="$(date '+%s')"
 
-# Directory in which we're currently working, e.g., ./files/vimrc
-declare WORKING_DIR
+# Directory in which we're currently working. Example, for a 'vimrc'
+#  WORKING_NAME=vimrc
+#  WORKING_DIR=$DATADIR/files/vimrc
+#  DIST_DIR=$DATADIR/dist/vimrc
+declare WORKING_NAME WORKING_DIR DIST_DIR
 
 # Array for holding the names of the dynamically generated associative arrays
 # with token properties.
@@ -89,10 +122,10 @@ declare -a ERR_MISSING_REQUIRED_CONFIG_SECTION
 #───────────────────────────────( import config )───────────────────────────────
 # TODO: This is for testing, so everything can stay in the same directory. Will
 #       eventually move over to it's home of ~/.config/hre-utils/deploy-dotfiles
-#CONFDIR="${XDG_CONFIG_HOME:-~/.config}/hre-utils/deploy-dotfiles"
-#mkdir -p "$CONFDIR"
-declare -g CONFDIR="${PROGDIR}"
-declare -g GCONF="${CONFDIR}/config.cfg"
+#DATADIR="${XDG_DATA_HOME:-${HOME}/.local/share}/hre-utils/deploy-dotfiles"
+#mkdir -p "$DATADIR"
+declare -g DATADIR="${PROGDIR}"
+declare -g GLOBAL_CONF="${DATADIR}/config.cfg"
 
 #──────────────────────────────( tmp & debugging )──────────────────────────────
 function debug {
@@ -103,7 +136,7 @@ function debug {
 
    # Only display debug messages that are within the specified range
    [[ $message_level -lt $debug_min ]] && return 0
-   [[ $message_level -gt $debug_max ]] && return 0
+   [[ $message_level -gt ${debug_max:-3} ]] && return 0
 
    local loglvl lineno=${BASH_LINENO[0]}
    local text color
@@ -125,15 +158,15 @@ function debug {
 
 function debug_tokens {
    for tname in "${TOKENS[@]}" ; do
-      declare -n tref=$tname
+      declare -n token=$tname
       local col="${cy}"
-      [[ ${tref[type]} == 'NEWLINE' ]] && col="${bk}"
-      [[ ${tref[type]} == 'OPEN'    ]] && col="${bl}"
-      [[ ${tref[type]} == 'CLOSE'   ]] && col="${bl}"
-      [[ ${tref[type]} == 'TEXT'    ]] && col="${bgr}"
+      [[ ${token[type]} == 'NEWLINE' ]] && col="${bk}"
+      [[ ${token[type]} == 'OPEN'    ]] && col="${bl}"
+      [[ ${token[type]} == 'CLOSE'   ]] && col="${bl}"
+      [[ ${token[type]} == 'TEXT'    ]] && col="${bgr}"
 
       # def __repr__(self):
-      printf "Token(${col}%-9s${rst} ${col}%s${rst})\n" "${tref[type]}," "${tref[value]@Q}"
+      printf "Token(${col}%-9s${rst} ${col}%s${rst})\n" "${token[type]}," "${token[value]@Q}"
    done
 }
 
@@ -149,7 +182,7 @@ function debug_output {
 #───────────────────────────────────( utils )───────────────────────────────────
 function usage {
 cat <<EOF
-USAGE: ./$(basename "${BASH_SOURCE[@]}") [OPTION | COMMAND]
+USAGE: ./$(basename "${BASH_SOURCE[@]}") [OPTION] [COMMAND]
 
 Options:
    -h | --help              show this message and exit
@@ -157,7 +190,8 @@ Options:
    -d | --debug LOW[,HIGH]  set debug level range
 
 Commands:
-   -n | --new NAME PATH     creates new entry for NAME, copying PATH as a 'base'
+   -c | --clean NUMBER      purges ./dist, maintaining NUMBER entries
+   -n | --new PATH          inits new base directory, copying PATH if exists
 EOF
 
 exit $1
@@ -168,26 +202,27 @@ function load_config {
    # Unset prior [base] if exists:
    [[ $(command -v base &>/dev/null) ]] && base --rm
 
-   # Initially load global configurations, potentially overwritten by [base]:
+   # Initially load global configurations, potentially overwritten by
+   # previous [base] activation:
    global --activate
 
    # Must contain a config file for each base dotfile
-   local LCONF="${WORKING_DIR}/config.cfg"
-   if [[ ! -e "$LCONF" ]] ; then
-      ERR_BASE_CONFIG_NOT_FOUND+=( "${WDIR}" )
-      debug 2 "Missing config file for ${WDIR}."
+   local local_conf="${WORKING_DIR}/config.cfg"
+   if [[ ! -e "$local_conf" ]] ; then
+      ERR_BASE_CONFIG_NOT_FOUND+=( "${WORKING_NAME}" )
+      debug 2 "Missing config file for ${WORKING_NAME}."
       return 1
    fi
 
    # Loads per-directory configuration
-   .load-conf "$LCONF"
+   .load-conf "$local_conf"
 
    # Requires sections [base] & [classes]
    declare -a required_sections=( base classes )
    for sect in "${required_sections[@]}" ; do
       if ! command -v "$sect" &>/dev/null ; then
-         ERR_MISSING_REQUIRED_CONFIG_SECTION+=( "${WDIR}.$sect" )
-         debug 2 "Missing config section: ${WDIR}.$sect"
+         ERR_MISSING_REQUIRED_CONFIG_SECTION+=( "${WORKING_NAME}.$sect" )
+         debug 2 "Missing config section: ${WORKING_NAME}.$sect"
       fi
    done
    [[ ${#ERR_MISSING_REQUIRED_CONFIG_SECTION[@]} -gt 0 ]] && return 2
@@ -196,8 +231,8 @@ function load_config {
    declare -a required_base_keys=( name destination )
    for key in "${required_base_keys[@]}" ; do
       if [[ ! $(base $key) ]] ; then
-         ERR_MISSING_REQUIRED_CONFIG_KEY+=( "${WDIR}.base.$key" )
-         debug 2 "Missing config section: ${WDIR}.base.$key"
+         ERR_MISSING_REQUIRED_CONFIG_KEY+=( "${WORKING_NAME}.base.$key" )
+         debug 2 "Missing config section: ${WORKING_NAME}.base.$key"
       fi
    done
    [[ ${#ERR_MISSING_REQUIRED_CONFIG_KEY[@]} -gt 0 ]] && return 3
@@ -211,29 +246,27 @@ function load_config {
 
 function create_base_config {
    # Sets directory name after stripping the suffix and leading '.'
-   local cname=$1 ; [[ $cname =~ ^\.?(.*) ]] ; cname="${BASH_REMATCH[1]%.*}"
-   local starting_file="$2"
+   local destination="$(dirname "$__full_path__")"
+   local name="$(basename "$__full_path__")"
+   local wdir_name="${name%.*}"
+   [[ "$wdir_name" =~ ^\.?(.*) ]] && wdir_name="${BASH_REMATCH[1]}"
 
-   local cdir="${PROGDIR}/files/${cname}"
-   mkdir -p "$cdir"
-   debug 1 "Created new directory at $cdir" 
+   # Create new working directory:
+   local new_wdir="${DATADIR}/files/${wdir_name}"
+   mkdir -pv "$new_wdir"
 
-   gen_base_config > "${cdir}/config.cfg"
+   # Paths to new base & config files:
+   local new_basefile="${new_wdir}/base"
+   local new_conffile="${new_wdir}/config.cfg"
 
-   [[ -n "$starting_file" ]] && cp "$starting_file" "${cdir}/base"
-   debug 1 "Copying '$starting_file' to '${cdir}/base'"
-}
-
-
-function gen_base_config {
-cat <<EOF
+   cat <<EOF > "${new_conffile}"
 # Required headings: [base], [classes]
 # Required keys: base.name, base.destination
 
 [base]
 # Specifies the destination directory & file name:
-name=$cname
-destination=
+name=$name
+destination=$destination
 
 # Can additionally override [global] config options on a per-directory basis.
 # Example, don't strip comment characters in only this base file:
@@ -245,7 +278,46 @@ destination=
 [[server]]
 key=value
 EOF
+
+   if [[ -e "$__full_path__" ]] ; then
+      cp -iv "$__full_path__" "$new_basefile"
+   fi
+
+   touch "$new_basefile"
 }
+
+
+function file_unmodified {
+   local hash name
+   local check="$(md5sum "${WORKING_DIR}/base" | awk '{print $1}')"
+   local database="${DIST_DIR}/.db" 
+   
+   [[ ! -e "$database" ]] && return 1
+
+   read -r hash name < <(grep "$check" "$database")
+   [[ -z "$name" ]] && return 1
+
+   debug 1 "${WORKING_NAME} already processed as ${WORKING_NAME}/$name"
+   #echo "$name"
+   return 0
+}
+
+
+function clean_dist {
+   declare -i num=$1
+
+   for wdir in $(ls -d "${DATADIR}/dist/"*) ; do
+      for file in $(ls "${wdir}" | sort | tail -n +${num}) ; do
+         # 1. Remove file from directory
+         debug 1 "$(rm -v "${wdir}/${file}")"
+
+         # 2. Remove entry from directory's database file
+         local db="${wdir}/.db"
+         [[ -e "$db" ]] && sed -i "/${file}/d" "$db"
+      done
+   done
+}
+
 
 #═══════════════════════════════════╡ LEXER ╞═══════════════════════════════════
 function Token {
@@ -275,34 +347,32 @@ function Token {
 # Scan forwards, filling found characters into a buffer.
 function fill {
    delim=$1
-   declare -g buffer=''
+   declare -g BUFFER=''
 
-   while [[ $idx -lt ${#chararray[@]} ]] ; do
-      local c="${chararray[$idx]}"
-      local n="${chararray[$((idx+1))]}"
+   while [[ $idx -lt ${#CHARARRAY[@]} ]] ; do
+      local c="${CHARARRAY[$idx]}"
+      local n="${CHARARRAY[$((idx+1))]}"
 
-      buffer+="$c"
+      BUFFER+="$c"
       [[ "$n" =~ [{}$'\n'] ]] && break
 
       idx=$((idx+1))
    done
-
-   #debug -1 "Buffer filled: [$buffer]"
 }
 
 
 function lex {
    # Initially load characters into array, so we may iterate over them (and look
    # forwards/backwards more easily):
-   declare -a chararray
+   declare -a CHARARRAY
    while read -r -N1 c ; do
-      chararray+=( "$c" )
+      CHARARRAY+=( "$c" )
    done < "${WORKING_DIR}/base"
 
-   # Iterate over chararray, create tokens of either 'OPEN', 'CLOSE', or 'TEXT'
+   # Iterate over CHARARRAY, create tokens of either 'OPEN', 'CLOSE', or 'TEXT'
    declare -i idx=0
-   while [[ $idx -lt ${#chararray[@]} ]] ; do
-      c="${chararray[$idx]}"
+   while [[ $idx -lt ${#CHARARRAY[@]} ]] ; do
+      local c="${CHARARRAY[$idx]}"
 
       if [[ "$c" == '{' ]] ; then
          Token 'OPEN' "$c"
@@ -311,13 +381,12 @@ function lex {
       elif [[ "$c" == $'\n' ]] ; then
          Token 'NEWLINE' "$c"
       else
-         fill ; Token 'TEXT' "$buffer"
+         fill ; Token 'TEXT' "$BUFFER"
       fi
 
       idx=$(( idx+1 ))
    done
 }
-
 
 #══════════════════════════════════╡ PARSER ╞═══════════════════════════════════
 function is_a_key {
@@ -360,8 +429,31 @@ function munch {
    if [[ -n $value ]] ; then
       Token 'TEXT' "$value"
    else
-      # TODO: `case $missing_key in`
-      Token 'TEXT' "KEY_ERROR(${token[value]})"
+      case $missing_key in
+         quiet)   # do not warn, leave text as is
+                  Token 'TEXT' "${token[value]}"
+                  ;;
+                  
+         warn)    # warn user, leave text as is
+                  debug 2 "Token ${WORKING_NAME}.${class}.${token[value]} not found in config"
+                  Token 'TEXT' "${token[value]}"
+                  ;;
+
+         rm)      # warn & replace with empty string
+                  debug 2 "Token ${WORKING_NAME}.${class}.${token[value]} not found in config"
+                  Token 'TEXT' ''
+                  ;;
+
+         repl)    # warn * replace with KEY_ERROR($key)
+                  debug 2 "Token ${WORKING_NAME}.${class}.${token[value]} not found in config"
+                  Token 'TEXT' "KEY_ERROR(${token[value]})"
+                  ;;
+
+         *)       # Default action: 'repl'
+                  debug 2 "Token ${WORKING_NAME}.${class}.${token[value]} not found in config"
+                  Token 'TEXT' "KEY_ERROR(${token[value]})"
+                  ;;
+      esac
    fi
 
    TOKENS=( "${lower[@]}"  "$LAST_CREATED_TOKEN"  "${upper[@]}" )
@@ -369,7 +461,7 @@ function munch {
 
 
 function strip_comments {
-   cchar=${comment_character:-$'#'}
+   local cchar=${comment_character:-$'#'}
 
    for tname in "${TOKENS[@]}" ; do
       declare -n token=$tname
@@ -381,21 +473,9 @@ function strip_comments {
 
 
 function strip_newlines {
-   # If you have the following tokens...
-   #  Token(TEXT, 'set')
-   #  Token(KEY,  '{{key}}')
-   # ...the 'set' will receive a trailing newline, even though it did not have
-   # one originally. Need to have a way to only strip _intermediate_ newlines.
-   # But then what if we have a standalone newline? Ugh, turns out this is more
-   # difficult than I thought.
-   #
-   # Maybe this can be part of post processing step? Once all character-by-
-   # character substitution is done, compile everything back to a straight up
-   # text string in a buffer. Then operate linewise via a while read.
-   #
-   # OOOOH. Or do we make a new token for newlines. Then if we hit more than one
-   # in a row, we blast them until the following token isn't a newline. I like
-   # this. Going to be a bit of a lower priority, after deployment is 'done'.
+   # There can be problems when stripping newlines after keys have been filled
+   # in. May need to tokenize the inserted text prior to stripping newlines and
+   # comments.
 
    declare -i idx=0
 
@@ -408,7 +488,7 @@ function strip_newlines {
       [[ "${token[type]}" == 'NEWLINE' ]] && \
       [[ "${next[type]}" == 'NEWLINE' ]] && {
          unset $tname ; unset TOKENS[$idx]
-         # Don't actually think it's necessary to unset the token array itself,
+         # Don't actually think it's necessary to unset the token dict itself,
          # can simply pop it from TOKENS. Just 'cause though.
       }
 
@@ -423,8 +503,8 @@ function parse {
    # Tokens may only occur if concluded by: '}', '}'. Stop scanning if there are
    # not at least two subsequent tokens to read.
    while [[ $idx -lt $(( ${#TOKENS[@]} - 2 )) ]] ; do
-      token_name="${TOKENS[$idx]}"
-      declare -n token="${token_name}"
+      local tname="${TOKENS[$idx]}"
+      declare -n token="${tname}"
 
       if is_a_key ; then
          munch
@@ -439,46 +519,64 @@ function parse {
 
 
 #══════════════════════════════════╡ DEPLOY ╞═══════════════════════════════════
+function build {
+   local dist_file="$1"
+
+   case $deploy_mode in
+      slink)  cmd='ln -sr' ;;  # Symlink
+      hlink)  cmd='ln -r'  ;;  # Hard link
+      copy)   cmd='cp'     ;;  # Copy
+      icopy)  cmd='cp -i'  ;;  # Copy, interactive (default)
+      *)      debug 2 "deploy_mode invalid, defaulting to 'icopy'"
+              declare -g deploy_mode='icopy'
+              deploy ;;
+   esac
+
+   mkdir -p "$(dirname "$dist_file")"
+
+   ( for tname in "${TOKENS[@]}" ; do
+        declare -n token=$tname
+        printf -- '%s' "${token[value]}"
+     done
+   ) > "$dist_file"
+
+   # Saves hash of the base file, with pointer to the compiled file. Allows us
+   # to check if the file is unmodified since the last run.
+   local db_entry="$(md5sum "${WORKING_DIR}/base" | awk '{print $1}') ${RUNID}" 
+   echo "$db_entry" >> "${DIST_DIR}/.db"
+}
+
+
 function backup_existing {
    local cmd dest="$1"
+   debug 1 "Target file ${dest} exists. Backing up."
 
    case $backup_mode in
-      bak)  # In-place backup, re-naming existing file to ${file}.bak
-            mv "$dest" "${dest}.bak" ;;
-
       rm)   # Nukes existing file--AAAH!
             rm -f "$dest" ;;
 
       irm)  # Interactively nukes existing file--aaah!
             rm -i "$dest" ;;
 
-      *)    # Default option, moves existing file to ./backup/ directory, mildly
-            # assuring a unique name:
+      bak)  # In-place backup, re-naming existing file to $file.bak
+            mv "$dest" "${dest}.bak" ;;
+
+      dir)  # Default option, moves existing file to ./backup/ directory, sets
+            # name to the last modification time of the file.
             local fname="$(basename "${dest}").$(stat --format '%W' ${dest})"
-            mv "$dest" "${CONFDIR}/backup/${fname}" ;;
+            mv "$dest" "${DATADIR}/backup/${fname}" ;;
+
+      *)    debug 2 "backup_mode invalid, defaulting to 'dir', re-running backup"
+            declare -g backup_mode='dir'
+            backup_existing "$dest" ;;
    esac
 }
 
 
 function deploy {
-   case $deploy_mode in
-      slink)  cmd='ln -sr' ;;  # Symlink
-      hlink)  cmd='ln -r'  ;;  # Hard link
-      copy)   cmd='cp'     ;;  # Copy
-      icopy)  cmd='cp -i'  ;;  # Copy, interactive (default)
-      *)      cmd='cp -i'  ;;
-   esac
-   debug 1 "Deploy method: \`$cmd\`"
+   local dist_file="${DIST_DIR}/$RUNID"
 
-   local dist="${PROGDIR}/dist/${WDIR}/$RUNID"
-   mkdir -p "$(dirname "$dist")"
-
-   ( for tname in "${TOKENS[@]}" ; do
-        declare -n token=$tname
-        printf -- '%s' "${token[value]}"
-     done
-   ) > "$dist"
-
+   build "$dist_file"
    $__build_only__ && return 0
 
    local _dest="$(base destination)"
@@ -488,10 +586,9 @@ function deploy {
    local destination="${_dest}/$(base name)"
    [[ -e "$destination" ]] && backup_existing "$destination" 
 
-   #"$cmd" "$dist" "$destination"
-   echo "DEBUG: $cmd '$dist' '$destination'"
+   debug 1 "Deploying '$dist_file' to '$destination' via cmd '$cmd'"
+   $cmd "$dist_file" "$destination"
 }
-
 
 #═══════════════════════════════════╡ MAIN ╞════════════════════════════════════
 #─────────────────────────────────( argparse )──────────────────────────────────
@@ -499,54 +596,60 @@ function deploy {
 __debug__=false
 __build_only__=false
 
+# TODO: Drop in @hre-utils/argparse later. May not actually need the
+#       configurable argument parsing, just the drop-in skeleton.
 while [[ $# -gt 0 ]] ; do
    case $1 in
       -h|--help)
-            usage 0
-            ;;
+            usage 0 ;;
 
-      -n|--new)
+      -b|--build-only)
             shift
-            create_base_config "$1" "$2"
-            exit 0
-            ;;
-
-      -n|--build-only)
-            shift
-            __build_only__=true
-            ;;
+            __build_only__=true ;;
 
       -d|--debug)
             shift
-            __debug__=true
-            __debug_level__=$1
-            ;;
+            __debug__=true ; __debug_level__=$1
+            shift ;;
 
-      *)
-            __invalid__+=( $1 )
+      -n|--new)
             shift
-            ;;
+            __full_path__="$1"
+            create_base_config
+            exit 0 ;;
+
+      -c|--clean)
+            shift
+            clean_dist ${1:-3}
+            exit 0 ;;
+
+      *)    __invalid__+=( $1 )
+            shift ;;
    esac
 done
 
 #─────────────────────────────────( validate )──────────────────────────────────
-if [[ -e "${GCONF}" ]] ; then
-   .load-conf "${GCONF}"
+if [[ -e "${GLOBAL_CONF}" ]] ; then
+   .load-conf "${GLOBAL_CONF}"
 else
-   debug 3 "Couldn't find global configurataion file."
+   debug 3 "No global configurataion file."
    exit 1
 fi
 
 #───────────────────────────────────( main )────────────────────────────────────
-for WDIR in $(ls "${CONFDIR}/files") ; do
+for WORKING_NAME in $(ls "${DATADIR}/files") ; do
    # Reset global variables on each run:
    TOKENS=() ; TOKEN_IDX=0 ; LAST_CREATED_TOKEN=
-   WORKING_DIR="${CONFDIR}/files/$WDIR"
+   WORKING_DIR="${DATADIR}/files/${WORKING_NAME}"
+   DIST_DIR="${DATADIR}/dist/${WORKING_NAME}"
 
    if [[ ! -e "${WORKING_DIR}/base" ]] ; then
       debug 2 "No \`base\` file found in ${WORKING_DIR}"
       continue
    fi
+
+   file_unmodified && continue
+   # If this base has already been compiled, deploy 
 
    load_config ; [[ $? -ne 0 ]] && continue
    # Loads 1) options file, 2) global config, 3) local config
@@ -554,31 +657,9 @@ for WDIR in $(ls "${CONFDIR}/files") ; do
    lex ; parse
    # Reads characters, makes tokens. Read tokens, fills in keys
 
+   deploy
+   # Reads tokens, makes files
+
    debug_output
    # Reads tokens, prints compilation
-
-   #deploy
-   # Reads tokens, makes files
 done
-
-
-# Debugging and basic error reporting
-#
-#if [[ ${#ERR_BASE_CONFIG_NOT_FOUND} -gt 0 ]] ; then
-#   declare c_list
-#   for c in "${ERR_BASE_CONFIG_NOT_FOUND[@]}" ; do
-#      c_list+="${c_list:+, }$c"
-#   done
-#   errors="Missing config.cfg file: $c_list"
-#fi ; ERRORS_AT_RUNTIME+=( "$errors" )
-#
-#if [[ ${#ERRORS_AT_RUNTIME[@]} -gt 0 ]] ; then
-#   echo "Errors encountered:"
-#   for idx in "${!ERRORS_AT_RUNTIME[@]}" ; do
-#      error="${ERRORS_AT_RUNTIME[$idx]}"
-#      printf '   %02d. %s\n'  "$((idx+1))"  "$error"
-#   done
-#fi
-
-
-# vim:ft=bash:foldmethod=marker:commentstring=#%s
