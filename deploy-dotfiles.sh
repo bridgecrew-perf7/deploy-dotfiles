@@ -9,54 +9,6 @@
 #  2021-05-18  :: Standardized variable names, added 'base' diffing so we don't
 #                 re-run on already compiled files.
 #
-#───────────────────────────────────( todo )────────────────────────────────────
-# 1. [ ] CLI options:
-#        1. [X] "--new" Automatically create the requisite directory structure
-#        2. [ ] "--find" Echo path to the 'base` of a specified search term
-#        3. [X] "--clean" Remove >3 files from each dir in ./dist. Pretty simple
-#                         rm $(/usr/bin/ls -1 ./dist/*/* | sort | tail -n +3)
-#
-# 2. [ ] Reporting. Compile information during the run into a final report. Use
-#        a trap to ensure the report is actually written on exits or failure.
-#        Report should contain: 1) exit status, 2) run summary, 3) operations
-#        performed, 4) errors encountered. Use `less -r` to show with color
-#        escapes enabled.
-#
-# 3. [X] Diff previously generated files. If there's no differences, no need to
-#        compile them again. Best way to do this might be a dotfile within each
-#        ./dist/$WDIR with a md5sum of the base file, and the filename it's
-#        created. Before running, we md5sum the 'base' file, grep the list to
-#        see if there's an existing entry.
-#
-# 4. [ ] Easier option for files that don't have any processing required. If it
-#        it something that's as simple as a 'cp' with no variables.
-#
-# 5. [ ] Re-work type :multiline and :text in mk-conf, such that we can specify
-#        longer sections of text to drop in. Though specifying files in
-#        ./files/$WDIR/additions/ may be a more elegant solution for long
-#        additions, 4-5 line chunks seem best via a :multiline entry.
-#
-# 6. [ ] Tokenize new text that's entered from the config.cfg file, such that
-#        we can properly strip newlines.
-#
-# 7. [X] Make consistent global variables for common paths. The names should be
-#        straightforward, memorable, and obviously distinct to which directory
-#        they refer.
-#
-#        Variable standards:
-#           GLOBAL_VARIABLES
-#           local_variables      (with exception of .cfg variables)
-#           __cli_parameters__
-#           _intermediate
-#
-# 8. [ ] Clean up terminology. We're referring to 'base' in like 3 different
-#        ways. As with variables, things should have one (and only one) clear
-#        name.
-#
-# 9. [ ] Create deployment script, move data to XDG_DATA_HOME or .local/share
-#
-# 10. [ ] Add `write` function. Similar to `debug`. For writing necessary output
-#         to the terminal. Will need to be quieted by '-q|--quiet'.
 
 #═══════════════════════════════════╡ BEGIN ╞═══════════════════════════════════
 #──────────────────────────────────( prereqs )──────────────────────────────────
@@ -635,6 +587,9 @@ else
    debug 3 "No global configurataion file."
    exit 1
 fi
+
+#───────────────────────────────────( init )────────────────────────────────────
+mkdir -p "${DATADIR}"/{backup,files,dist}
 
 #───────────────────────────────────( main )────────────────────────────────────
 for WORKING_NAME in $(ls "${DATADIR}/files") ; do
