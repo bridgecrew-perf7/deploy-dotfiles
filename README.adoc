@@ -121,14 +121,18 @@ It also keeps the footprint & dependencies small, which make it portable.
 
 == To Do
 
-* [x] Diff previously generated files.
-      If there's no differences, no need to compile them again.
-      Best way to do this might be a dotfile within each ./dist/$WDIR with a md5sum of the base file, and the filename it's created.
-      Before running, we md5sum the 'base' file, grep the list to see if there's an existing entry.
+.Refactor
+* [ ] Clean up terminology.
+      We're referring to 'base' in like 3 different ways.
+      As with variables, things should have one (and only one) clear name.
 
-* [x] Make consistent global variables for common paths.
-      The names should be straightforward, memorable, and obviously distinct to which directory they refer.
+* [ ] Re-work type :multiline and :text in `mk-conf.sh`, such that we can specify longer sections of text to drop in.
+      While specifying files in `./files/$WDIR/additions/` may be a more elegant solution for long additions, 4-5 line chunks seem best via a :multiline entry.
 
+* [ ] Tokenize new text that's entered from the config.cfg file, such that we can properly strip newlines.
+
+
+.Features
 * [ ] CLI options:
     ** [x] `--new` Automatically create the requisite directory structure
     ** [x] `--clean` Remove >3 files from each dir in ./dist.
@@ -143,17 +147,18 @@ It also keeps the footprint & dependencies small, which make it portable.
 * [ ] Easier option for files that don't have any processing required.
       If it it something that's as simple as a 'cp' with no variables.
 
-* [ ] Re-work type :multiline and :text in mk-conf, such that we can specify longer sections of text to drop in.
-      Though specifying files in ./files/$WDIR/additions/ may be a more elegant solution for long additions, 4-5 line chunks seem best via a :multiline entry.
-
-* [ ] Tokenize new text that's entered from the config.cfg file, such that we can properly strip newlines.
-
-* [ ] Clean up terminology.
-      We're referring to 'base' in like 3 different ways.
-      As with variables, things should have one (and only one) clear name.
-
 * [ ] Create deployment script, move data to XDG_DATA_HOME or .local/share
 
 * [ ] Add `write` function. Similar to `debug`.
       For writing necessary output to the terminal.
       Will need to be quieted by '-q|--quiet'.
+
+
+.Done
+* [x] Diff previously generated files.
+      If there's no differences, no need to compile them again.
+      Best way to do this might be a dotfile within each ./dist/$WDIR with a md5sum of the base file, and the filename it's created.
+      Before running, we md5sum the 'base' file, grep the list to see if there's an existing entry.
+
+* [x] Make consistent global variables for common paths.
+      The names should be straightforward, memorable, and obviously distinct to which directory they refer.

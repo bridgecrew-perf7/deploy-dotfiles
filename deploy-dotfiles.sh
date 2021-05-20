@@ -8,7 +8,6 @@
 #                 heading.
 #  2021-05-18  :: Standardized variable names, added 'base' diffing so we don't
 #                 re-run on already compiled files.
-#
 
 #═══════════════════════════════════╡ BEGIN ╞═══════════════════════════════════
 #──────────────────────────────────( prereqs )──────────────────────────────────
@@ -49,14 +48,14 @@ PROGDIR="$( cd "$(dirname "${BASH_SOURCE[0]}")" ; pwd )"
 # a section in a report/logfile with a particular generated filed.
 declare RUNID="$(date '+%s')"
 
-# Directory in which we're currently working. Example, for a 'vimrc'
+# Directory in which we're currently working. Example, for a '.vimrc':
 #  WORKING_NAME=vimrc
 #  WORKING_DIR=$DATADIR/files/vimrc
 #  DIST_DIR=$DATADIR/dist/vimrc
 declare WORKING_NAME WORKING_DIR DIST_DIR
 
 # Array for holding the names of the dynamically generated associative arrays
-# with token properties.
+# with token properties:
 declare -a TOKENS
 declare -i TOKEN_IDX=0
 declare LAST_CREATED_TOKEN
@@ -70,16 +69,19 @@ declare -a ERR_BASE_CONFIG_NOT_FOUND
 declare -a ERR_MISSING_REQUIRED_CONFIG_KEY
 declare -a ERR_MISSING_REQUIRED_CONFIG_SECTION
 
+# Reports generation:
+declare -a REP_BUILD_STATUS
+declare -a REP_DEPLOY_STATUS
 
 #───────────────────────────────( import config )───────────────────────────────
 # TODO: This is for testing, so everything can stay in the same directory. Will
-#       eventually move over to it's home of ~/.config/hre-utils/deploy-dotfiles
+#       eventually move over to it's home to ~/.local/share
 #DATADIR="${XDG_DATA_HOME:-${HOME}/.local/share}/hre-utils/deploy-dotfiles"
 #mkdir -p "$DATADIR"
 declare -g DATADIR="${PROGDIR}"
 declare -g GLOBAL_CONF="${DATADIR}/config.cfg"
 
-#──────────────────────────────( tmp & debugging )──────────────────────────────
+#─────────────────────( logging, printing, and debugging )──────────────────────
 function debug {
    $__debug__ || return 0
 
@@ -130,6 +132,9 @@ function debug_output {
    done
 }
 
+
+function report {
+}
 
 #───────────────────────────────────( utils )───────────────────────────────────
 function usage {
