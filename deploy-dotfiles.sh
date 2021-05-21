@@ -8,6 +8,7 @@
 #                 heading.
 #  2021-05-18  :: Standardized variable names, added 'base' diffing so we don't
 #                 re-run on already compiled files.
+#  2021-05-20  :: Added tokenizing of input values, and better dep sourcing
 
 #═══════════════════════════════════╡ BEGIN ╞═══════════════════════════════════
 #──────────────────────────────────( prereqs )──────────────────────────────────
@@ -18,31 +19,88 @@
    exit 1
 }
 
-# TODO: source `import.sh`, then use `import` to source the rest
-source "$(which mk-conf.sh)"
+# Ensure we're not left with a whacky terminal color:
+trap 'printf $(tput sgr0)' EXIT
+trap 'printf $(tput sgr0) ; exit 0' INT
 
-# TODO: This will be later imported, not explicitly defined. `import mk-colors`
-# Colors:
-rst=$(tput sgr0)                                   # Reset
-bk="$(tput setaf 0)"                               # Black
-rd="$(tput setaf 1)"  ;  brd="$(tput bold)${rd}"   # Red     ;  Bright Red
-gr="$(tput setaf 2)"  ;  bgr="$(tput bold)${gr}"   # Green   ;  Bright Green
-yl="$(tput setaf 3)"  ;  byl="$(tput bold)${yl}"   # Yellow  ;  Bright Yellow
-bl="$(tput setaf 4)"  ;  bbl="$(tput bold)${bl}"   # Blue    ;  Bright Blue
-mg="$(tput setaf 5)"  ;  bmg="$(tput bold)${bl}"   # Magenta ;  Bright Magenta
-cy="$(tput setaf 6)"  ;  bcy="$(tput bold)${cy}"   # Cyan    ;  Bright Cyan
-wh="$(tput setaf 7)"  ;  bwh="$(tput bold)${wh}"   # White   ;  Bright White
+#───────────────────────────────( dependencies )────────────────────────────────
+# Still running into a problem when importing... my common variables are reset
+# every time. Can take the approach I do in Python when sourcing things...
+# nothing should just be in-line. Wrap everything in functions. The bash equiv
+# of a `if __name__ == '__main__'` is `[[ ${0} == ${BASH_SOURCE[0]} ]]`.
+# Could save & restore the values... as we would with the registers and stack in
+# assembly:
+#     unset _PROGDIR ; _PROGDIR="${PROGDIR}"                   # Start
+#     PROGDIR=$( cd $(dirname "${BASH_SOURCE[0]}") ; pwd )     # Define
+#     ...                                                      # Do stuff
+#     PROGDIR="${_PROGDIR}" ; unset _PROGDIR                   # End
+# Or could do it with namerefs? Make an 'init' function in each file that will
+# establish a series of variables named after the file name. Then only call via
+# local namerefs back to the name-declared progdir:
+#     function init {
+#        local PROGDIR=$( cd $(dirname "${BASH_SOURCE[0]}") ; pwd )
+#        local fname="$(basename "${BASH_SOURCE[@]}")"
+#        declare -g "${fname%.*}_PROGDIR"="${PROGDIR}"
+#     }
+#
+# Then call with:
+#     function foo {
+#        local fname="$(basename "${BASH_SOURCE[@]}")"
+#        declare -n PROGDIR="${fname%.*}_PROGDIR"
+#     }
 
-#(
-#   printf '╒═════════════════════════════════════════════╕\n'
-#   printf '├──────────────────┤ START ├──────────────────┤\n'
-#   printf '│ %s - ' "$(date '+%Y/%b/%d %T')"
-#   printf '%-20s │\n' $(printf '%.20s' $(basename "${BASH_SOURCE[0]%.*}"))
-#   printf '╘═════════════════════════════════════════════╛\n'
-#)
+__dependencies__=( mk-colors.sh mk-conf.sh )
+__dep_not_met__=()
+
+for __dep__ in "${__dependencies__[@]}" ; do
+   #───────────────────────────( already sourced )──────────────────────────────
+   # If we've already sourced this dependency, its respective __sourced_XX var
+   # will be set. Don't re-source. Continue.
+   _dep="${__dep__%.*}"
+   __dep_sourcename__="__source_${_dep//[^[:alnum:]]/_}__"
+   [[ -n "${!__dep_sourcename__}" ]] && continue
+
+   # Gotta define this nonsense in the loop, as it'll be be overwritten from
+   # each file that we source. Need to come up with a better solution to this,
+   # as suggested in the comment(s) above. Re-defined @ 37j.
+   PROGDIR="$( cd "$(dirname "${BASH_SOURCE[0]}")" ; pwd )"
+   DATADIR="${PROGDIR}"
+   LIBDIR="${DATADIR}/lib" 
+
+   #─────────────────────────────( try source )─────────────────────────────────
+   if [[ -e "${LIBDIR}/${__dep__}" ]] ; then
+      source "${LIBDIR}/${__dep__}"
+   elif [[ $(which ${__dep__} 2>/dev/null) ]] ; then
+      # Else try to source if the file is found in our $PATH
+      source "$(which ${__dep__})"
+   else
+      # Else failed to source. Append to list for tracking.
+      __dep_not_met__+=( "$__dep__" )
+   fi
+done
+
+if [[ ${#__dep_not_met__} -gt 0 ]] ; then
+   # If colors have been sourced, pretty-print output
+   if [[ -n $__source_colors__ ]] ; then
+      echo -n "[${bl}$(basename "${BASH_SOURCE[@]}")${rst}] ${brd}ERROR${rst}: "
+   # ELse just regular plain-print it. :(
+   else
+      echo -n "[$(basename "${BASH_SOURCE[@]}")] ERROR: "
+   fi
+
+   echo "Failed to source: [${__dep_not_met__[@]}]"
+   echo " + clone from @hre-utils"
+
+   exit 1
+fi
 
 #──────────────────────────────────( global )───────────────────────────────────
-PROGDIR="$( cd "$(dirname "${BASH_SOURCE[0]}")" ; pwd )"
+# TODO: This is for testing, so everything can stay in the same directory. Will
+#       eventually move over to it's home to ~/.local/share
+#declare -g DATADIR="${XDG_DATA_HOME:-${HOME}/.local/share}/hre-utils/deploy-dotfiles"
+#mkdir -p "$DATADIR"
+declare -g PROGDIR="$( cd "$(dirname "${BASH_SOURCE[0]}")" ; pwd )"
+declare -g DATADIR="${PROGDIR}"
 
 # Used in logging, and temp filename generation in ./dist/. Allows us to pair
 # a section in a report/logfile with a particular generated filed.
@@ -73,12 +131,7 @@ declare -a ERR_MISSING_REQUIRED_CONFIG_SECTION
 declare -a REP_BUILD_STATUS
 declare -a REP_DEPLOY_STATUS
 
-#───────────────────────────────( import config )───────────────────────────────
-# TODO: This is for testing, so everything can stay in the same directory. Will
-#       eventually move over to it's home to ~/.local/share
-#DATADIR="${XDG_DATA_HOME:-${HOME}/.local/share}/hre-utils/deploy-dotfiles"
-#mkdir -p "$DATADIR"
-declare -g DATADIR="${PROGDIR}"
+# Global configuration file
 declare -g GLOBAL_CONF="${DATADIR}/config.cfg"
 
 #─────────────────────( logging, printing, and debugging )──────────────────────
@@ -133,8 +186,8 @@ function debug_output {
 }
 
 
-function report {
-}
+#function report {
+#}
 
 #───────────────────────────────────( utils )───────────────────────────────────
 function usage {
@@ -319,12 +372,14 @@ function fill {
 
 
 function lex {
+   local fdata="$1"
+
    # Initially load characters into array, so we may iterate over them (and look
    # forwards/backwards more easily):
-   declare -a CHARARRAY
+   declare -a CHARARRAY=()
    while read -r -N1 c ; do
       CHARARRAY+=( "$c" )
-   done < "${WORKING_DIR}/base"
+   done <<< "$fdata"
 
    # Iterate over CHARARRAY, create tokens of either 'OPEN', 'CLOSE', or 'TEXT'
    declare -i idx=0
@@ -371,20 +426,20 @@ function is_a_key {
 
 
 function munch {
-   # Slice from 0 -> 2 before the current idx. Should be non-inclusive of both
-   # the opening '{{' characters:
-   local lower=( "${TOKENS[@]::$((idx-2))}" )
-
    # Slice from 3 after current idx to end of array. Starts on the character
    # *after* the closing '}}':
    local upper=( "${TOKENS[@]:$((idx+3)):$((${#TOKENS[@]}-idx))}" )
+
+   # Save only the 'lower' portion of the tokens, such that we can append into
+   # the middle:
+   TOKENS=( "${TOKENS[@]::$((idx-2))}" )
 
    # Look up value in options.ini
    local dict="${WORKING_DIR}/options"
    local value=$( classes $class "${token[value]}")
 
    if [[ -n $value ]] ; then
-      Token 'TEXT' "$value"
+      lex "$value"
    else
       case $missing_key in
          quiet)   # do not warn, leave text as is
@@ -413,18 +468,35 @@ function munch {
       esac
    fi
 
-   TOKENS=( "${lower[@]}"  "$LAST_CREATED_TOKEN"  "${upper[@]}" )
+   TOKENS=( "${TOKENS[@]}"  "${upper[@]}" )
 }
 
 
 function strip_comments {
    local cchar=${comment_character:-$'#'}
 
-   for tname in "${TOKENS[@]}" ; do
-      declare -n token=$tname
-      if [[ ${token[type]} == 'TEXT' ]] ; then
+   declare -i idx=0
+   while [[ $idx -lt $(( ${#TOKENS[@]} - 1 )) ]] ; do
+      declare tname=${TOKENS[idx]}
+      declare -n token=${tname}
+
+      if [[ "${token[type]}" == 'TEXT' ]] ; then
          token[value]="${token[value]%%${cchar}*}"
+         
+         # Can't just unset the token, or we can no longer iterate over the
+         # array by index. We need to pull the array apart, unset the token,
+         # then put it back together.
+         if [[ "${token[value]}" =~ ^[[:space:]]*$ ]] ; then
+            declare -a above=( "${TOKENS[@]:idx+1:$((${#TOKENS[@]}-idx))}" )
+            if [[ $idx -eq 0 ]] ; then
+               TOKENS=( "${above[@]}" )
+            else
+               TOKENS=( "${TOKENS[@]::idx-1}" "${above[@]}" )
+            fi
+         fi
       fi
+
+      ((idx++))
    done
 }
 
@@ -437,17 +509,20 @@ function strip_newlines {
    declare -i idx=0
 
    while [[ $idx -lt $(( ${#TOKENS[@]} - 1 )) ]] ; do
-      declare tname=${TOKENS[$idx]}
+      declare tname=${TOKENS[idx]}
 
       declare -n token=${tname}
-      declare -n next=${TOKENS[$idx+1]}
+      declare -n next=${TOKENS[idx+1]}
 
-      [[ "${token[type]}" == 'NEWLINE' ]] && \
-      [[ "${next[type]}" == 'NEWLINE' ]] && {
-         unset $tname ; unset TOKENS[$idx]
-         # Don't actually think it's necessary to unset the token dict itself,
-         # can simply pop it from TOKENS. Just 'cause though.
-      }
+      # Newlines:
+      if [[ "${token[type]}" == 'NEWLINE' ]] ; then
+         # Strip newlines if...
+         #  1. multiple subsequent newlines
+         #  2. a newline is the first line in the file
+         if [[ "${next[type]}" == 'NEWLINE' ]] || [[ $idx == 0 ]] ; then
+            unset $tname ; unset TOKENS[$idx]
+         fi
+      fi
 
       ((idx++))
    done
@@ -606,6 +681,12 @@ for WORKING_NAME in $(ls "${DATADIR}/files") ; do
    if [[ ! -e "${WORKING_DIR}/base" ]] ; then
       debug 2 "No \`base\` file found in ${WORKING_DIR}"
       continue
+   else
+      fdata="$(cat "${WORKING_DIR}/base")"
+      # XXX: Don't love this approach, it makes things less clean than simply
+      #      using redirection in the 'while read' loop when lexing. Though this
+      #      does allow us to use the lexer on regular string inputs, and re-lex
+      #      the subsisted variable data.
    fi
 
    file_unmodified && continue
@@ -614,12 +695,13 @@ for WORKING_NAME in $(ls "${DATADIR}/files") ; do
    load_config ; [[ $? -ne 0 ]] && continue
    # Loads 1) options file, 2) global config, 3) local config
 
-   lex ; parse
+   lex "$fdata" ; parse
    # Reads characters, makes tokens. Read tokens, fills in keys
 
    deploy
    # Reads tokens, makes files
 
-   debug_output
+   #debug_output
+   debug_tokens
    # Reads tokens, prints compilation
 done

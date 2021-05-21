@@ -3,7 +3,18 @@
 
 Simplified multi-platform dotfile management.
 
-(WORK IN PROGRESS)
+(WORK IN PROGRESS--very much a rough draft)
+
+== What it do
+I have oft found myself needing to maintain 3-4 versions of my dotfiles.
+A _.bashrc_ for macOS, my work machine, personal linux box, etc.
+All of which have subtle differences in the prompts, aliases, or defaults.
+
+This projects allows for a single file with variables (denoted as `{{...}}`) to be used.
+Key:value pairs are defined in a second file.
+If a matching value is found, it is substituted into the text.
+Once each file has been parsed, it's either copied or linked to its destination.
+
 
 == Installation
 .External dependencies
@@ -36,7 +47,8 @@ mv ./deploy-dotfiles/deploy-dotfiles.sh /usr/local/bin
 ----
 
 
-== Usage
+== How it do
+=== Usage & Definitions
 [source]
 ----
 USAGE: ./deploy-dotfiles.sh [OPTION] [COMMAND]
@@ -74,16 +86,63 @@ local config::
    Characterized by bracket enclosed headings, and use of multiple brackets to denote sub-heading levels.
    Mine may be parsed non-traditionally, see https://github.com/hre-utils/mk-conf[@hre-utils/mk-conf] for more info.
 
+
+=== Directory Structure
+The requisite directory structure is created at either:
+
+. `$XDG_DATA_HOME/hre-utils/deploy-dotfiles/`, or
+. `~/.local/share/hre_utils/deploy-dotfiles/`
+
+[source]
+----
+deploy-dotfiles/
+ ├── backup/                     # <- prevent over-writing, files dropped here
+ ├── dist/                       # <- compiled output
+ ├── files/
+ │    ├── vimrc/
+ │    │     ├── base             # <- base dotfile (contains variables)
+ │    │     └── options.cfg      # <- local config
+ │    └── bashrc/
+ │         ├── base
+ │         └── options.cfg
+ └── options.cfg                 # <- global config
+----
+
 === Example(s)
-Below are a list of options assuming we're adding & deploying a `.vimrc` file, located at `$HOME/.vimrc`.
-
 ==== Adding a new file
-==== Deploying files
+[source]
+----
+./deploy-dotfiles.sh --new ~/.vimrc
+----
+
+.Does
+. Creates new directory under _files/_.
+. Default local _options.cfg_ is written.
+. Either copies file from `$PATH` to '`base`', or creates empty file
+
 ==== Building only
+[source]
+----
+./deploy-dotfiles.sh --build-only
+----
+
+.Does
+. Compiles all '`base`' files
+. Moves into _dist/_, named after seconds since epoch
+
+.Does not
+. Deploy to final destination
+
 ==== Pruning dist/
+[source]
+----
+./deploy-dotfiles.sh --clean [NUM]
+----
 
+.Does
+. Deletes all files from _dist/_, save for the most recent `$NUM` (default 3)
 
-== Features
+== What else
 === Safety
 Decent error checking.
 
@@ -92,12 +151,12 @@ Sane defaults.
 It should be difficult for one to accidentally nuke a config file.
 If an existing dotfile is found at the deployment location, it is backed up via one of several methods:
 
+. Moved _(default)_: re-located to the `backup` directory, renamed to last modification time
 . In-place: given `.bak` suffix
-. Moved:    re-located to the `backup` directory, renamed to last modification time
-. Removed:  `rm -i` to provide confirmation & interactively remove
+. Removed: `rm -i` to provide confirmation & interactively remove
 
 Should the user choose to not back up a potentially overwritten file, the default copy command is `cp -i`.
-The user has plenty of opportunity to prevent data loss, unless they specifically choose not to.
+There's plenty opportunity to prevent data loss, unless specifically chosen not to.
 
 
 === Portability
@@ -110,7 +169,18 @@ You don't have to download the entirety of Python3, or nonsense ruby gems.
 You're welcome.
 
 
-== "But why?"
+=== Logging & Troubleshooting
+Fairly comprehensive log output.
+
+Turn on log levels by passing `--debug LOW[,HIGH]`.
+Levels start at -1 (for absolute noise), to 3 (critical errors).
+
+Each run initially generates a '`RUN_ID`' (seconds since the epoch).
+The compiled files in _dist/_ are each named after the RUN_ID, to match against specific logfile output.
+Allows for easier troubleshooting.
+
+
+== Why it do
 Bash == best.
 
 Using the language for things it was unequivocally not intended is a wonderful way to gain a deeper understanding of it.
@@ -119,9 +189,8 @@ No one in their right mind would make a lexer in bash... so I had to.
 It also keeps the footprint & dependencies small, which make it portable.
 
 
-== To Do
-
-.Refactor
+== To do
+.Refactor & Bugfixes
 * [ ] Clean up terminology.
       We're referring to 'base' in like 3 different ways.
       As with variables, things should have one (and only one) clear name.
@@ -130,6 +199,9 @@ It also keeps the footprint & dependencies small, which make it portable.
       While specifying files in `./files/$WDIR/additions/` may be a more elegant solution for long additions, 4-5 line chunks seem best via a :multiline entry.
 
 * [ ] Tokenize new text that's entered from the config.cfg file, such that we can properly strip newlines.
+* [ ] 'Library' files contain too many conflicting global variables when sourcing.
+      `PROGDIR` ends up being set to the path of the last-sourced file.
+      Several proposed solutions noted in the comments.
 
 
 .Features
@@ -152,6 +224,9 @@ It also keeps the footprint & dependencies small, which make it portable.
 * [ ] Add `write` function. Similar to `debug`.
       For writing necessary output to the terminal.
       Will need to be quieted by '-q|--quiet'.
+
+* [ ] When stripping newlines, also consider situations of `$'\n'`, `$' '`, `$'\n'`.
+      Need a lookahead +2, or a lookbehind.
 
 
 .Done
