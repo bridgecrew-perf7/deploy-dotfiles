@@ -1,5 +1,6 @@
 = deploy-dotfiles.sh
-:toc: preamble
+:toc:       left
+:toclevels: 3
 
 Simplified multi-platform dotfile management.
 
@@ -13,7 +14,7 @@ All of which have subtle differences in the prompts, aliases, or defaults.
 This projects allows for a single file with variables (denoted as `{{...}}`) to be used.
 Key:value pairs are defined in a second file.
 If a matching value is found, it is substituted into the text.
-Once each file has been parsed, it's either copied or linked to its destination.
+After parsing it's linked to the destination.
 
 
 == Installation
@@ -173,7 +174,7 @@ You're welcome.
 Fairly comprehensive log output.
 
 Turn on log levels by passing `--debug LOW[,HIGH]`.
-Levels start at -1 (for absolute noise), to 3 (critical errors).
+Levels go from -1 (for absolute noise), to 3 (critical errors).
 
 Each run initially generates a '`RUN_ID`' (seconds since the epoch).
 The compiled files in _dist/_ are each named after the RUN_ID, to match against specific logfile output.
@@ -191,24 +192,18 @@ It also keeps the footprint & dependencies small, which make it portable.
 
 == To do
 .Refactor & Bugfixes
-* [ ] Clean up terminology.
-      We're referring to 'base' in like 3 different ways.
-      As with variables, things should have one (and only one) clear name.
-
-* [ ] Re-work type :multiline and :text in `mk-conf.sh`, such that we can specify longer sections of text to drop in.
-      While specifying files in `./files/$WDIR/additions/` may be a more elegant solution for long additions, 4-5 line chunks seem best via a :multiline entry.
-
-* [ ] Tokenize new text that's entered from the config.cfg file, such that we can properly strip newlines.
-* [ ] 'Library' files contain too many conflicting global variables when sourcing.
+* [ ] '`Library`' files contain too many conflicting global variables when sourcing.
       `PROGDIR` ends up being set to the path of the last-sourced file.
       Several proposed solutions noted in the comments.
-
 
 .Features
 * [ ] CLI options:
     ** [x] `--new` Automatically create the requisite directory structure
     ** [x] `--clean` Remove >3 files from each dir in ./dist.
-    ** [ ] `--find` Echo path to the 'base` of a specified search term
+    ** [ ] `--find` Echo path to the '`base`' of a specified search term
+
+* [ ] Re-work type :multiline and :text in `mk-conf.sh`, such that we can specify longer sections of text to drop in.
+      While specifying files in `./files/$NAME/additions/` may be a more elegant solution for long additions, 4-5 line chunks seem best via a :multiline entry.
 
 * [ ] Reporting.
       Compile information during the run into a final report.
@@ -223,17 +218,25 @@ It also keeps the footprint & dependencies small, which make it portable.
 
 * [ ] Add `write` function. Similar to `debug`.
       For writing necessary output to the terminal.
-      Will need to be quieted by '-q|--quiet'.
+      Will need to be quieted by `-q|--quiet`.
 
 * [ ] When stripping newlines, also consider situations of `$'\n'`, `$' '`, `$'\n'`.
       Need a lookahead +2, or a lookbehind.
 
+* [ ] Maybe set up `fswatch` for auto-compiling files from base?
+
 
 .Done
+* [x] Tokenize new text that's entered from the config.cfg file, such that we can properly strip newlines.
+
 * [x] Diff previously generated files.
       If there's no differences, no need to compile them again.
-      Best way to do this might be a dotfile within each ./dist/$WDIR with a md5sum of the base file, and the filename it's created.
-      Before running, we md5sum the 'base' file, grep the list to see if there's an existing entry.
+      Best way to do this might be a dotfile within each `./dist/$NAME` with a md5sum of the base file, and the filename it's created.
+      Before running, we md5sum the '`base`' file, grep the list to see if there's an existing entry.
 
 * [x] Make consistent global variables for common paths.
       The names should be straightforward, memorable, and obviously distinct to which directory they refer.
+
+* [x] Clean up terminology.
+      We're referring to '`base`' in like 3 different ways.
+      As with variables, things should have one (and only one) clear name.
