@@ -1,0 +1,267 @@
+= deploy-dotfiles.sh
+:toc:       left
+:toclevels: 3
+:source-highlighter:     pygments
+:pygments-style:         algol_nu
+:pygments-linenums-mode: table
+
+Simplified multi-platform dotfile management.
+
+(WORK IN PROGRESS--very much a rough draft)
+
+
+== General Information
+=== What this isn't
+A good idea.
+
+=== What this is
+A useful, robust CLI tool, written entirely in Bash, using non-traditional features & methodologies.
+
+I have oft found myself needing to maintain 3-4 versions of my dotfiles.
+A _.bashrc_ on macOS, linux, a work machine, etc.
+All of which have subtle differences in the prompts, aliases, or defaults.
+
+This projects allows for a single file with variables (denoted as `{{...}}`) to be used.
+Key:value pairs are defined in a second file.
+If a matching value is found, it is substituted into the text.
+After parsing it's linked to the destination.
+
+
+== Usage
+=== Installation
+[source,bash]
+----
+# Assuming an ubuntu system...
+
+#  1. General deps:
+$ sudo apt-get update -y
+$ sudo apt-get upgrade -y
+$ sudo apt-get install gawk sed
+
+#  2. My deps:
+$ git clone https://github.com/hre-utils/mk-conf
+$ chmod +x ./mk-conf/mk-conf.sh
+$ mv ./mk-conf/mk-conf.sh /usr/local/bin
+
+#  3. This script:
+$ git clone https://github.com/hre-utils/deploy-dotfiles
+$ chmod +x ./deploy-dotfiles/deploy-dotfiles.sh
+$ mv ./deploy-dotfiles/deploy-dotfiles.sh /usr/local/bin
+----
+
+=== Definitions
+base (file)::
+   The contents of a dotfile, containing key:value pairs substituted during compilation.
+   Located at _./files/$NAME/base_.
+
+base (section)::
+   The leading section of a local configuration file, specifying both per-directory options & variable definitions.
+
+global config::
+   Configuration settings set for compilation & deployment.
+   It is  loaded prior to per-directory local options.
+   Located at _./config.cfg_
+
+local config::
+   Per-directory configuration file.
+   It is loaded after global options, thus you may override a global default for a single file.
+   Located at _./files/$NAME/config.cfg_.
+
+.cfg (format)::
+   A file format commonly used for config files.
+   Characterized by bracket enclosed headings, and use of multiple brackets to denote sub-heading levels.
+   Mine may be parsed non-traditionally, see https://github.com/hre-utils/mk-conf[@hre-utils/mk-conf] for more info.
+
+
+=== Directory Structure
+The requisite directory structure is created at either:
+
+. `$XDG_DATA_HOME/hre-utils/deploy-dotfiles/`, or
+. `~/.local/share/hre_utils/deploy-dotfiles/`
+
+[source]
+----
+deploy-dotfiles/
+ ├── config.cfg                  # <- global config
+ ├── dist/                       # <- compiled output
+ └── files/
+      ├── bashrc/
+      │    ├── base
+      │    └── config.cfg
+      └── vimrc/
+           ├── base             # <- base dotfile
+           └── config.cfg       # <- local config
+----
+
+=== Base files
+A '`base`' dotfile will look nearly identical to the original.
+An example will demonstrate the differences effectively.
+Given a _.bashrc_ used on both macOS and Linux, an `ls` alias needs to account for the BSD variant.
+Below we alias '`ll`' to the output of a variable called '`ls_long`':
+
+[source,bash]
+----
+alias ll={{ls_long}}
+----
+
+This variable is expanded based on established keys in the local '`config.cfg`' file.
+
+=== Local config
+An example can be found link:../doc/local_config.cfg[here].
+Under the `[classes]` heading, supply subheading(s) named for each distinct platform grouping.
+Given the example above, perhaps `\[[macos]]` and `\[[ubuntu]]`:
+
+[source,cfg]
+----
+[classes]
+[[macos]]
+ls_long=ls -l -G
+
+[[ubuntu]]
+ls_long=ls -l --color --group-directories-first
+----
+
+=== Global config
+An example can be found link:../doc/global_config.cfg[here].
+The global configuration file is well documented via in-line comments, though there are several features of note.
+
+==== '`class`'
+The `class=` variable defines which subset of variables should be substituted on this machine from the local config.
+Due to this, the global _config.cfg_ should be untracked.
+
+==== '`backup_mode`'
+By default, if a file is found at the deployment destination it will be moved to _./backup/_.
+This prevents unintentionally overwriting a file when experimenting.
+
+Backed up files are named after their last modification time.
+
+
+=== Useful opts
+==== Adding a new file
+[source]
+----
+$ ./deploy-dotfiles.sh --new PATH
+----
+
+. Creates new directory under _files/_
+. Default local _config.cfg_ is written
+. Copies file from `$PATH`, or creates empty '`base`' file
+
+==== Build only
+[source]
+----
+$ ./deploy-dotfiles.sh --build-only
+----
+
+. Compiles all '`base`' files
+. Moves into _dist/_, named after seconds since epoch
+. Does not deploy to final destination
+
+==== Pruning dist/
+[source]
+----
+$ ./deploy-dotfiles.sh --clean [NUM]
+----
+
+. Deletes all files from _dist/_, save for the most recent `$NUM` (default 3)
+
+== What else
+=== Safety
+Decent error checking.
+
+Sane defaults.
+
+It should be difficult for one to accidentally nuke a config file.
+If an existing dotfile is found at the deployment location, it is backed up via one of several methods:
+
+. Moved _(default)_: re-located to the `backup` directory, renamed to last modification time
+. In-place: given `.bak` suffix
+. Removed: `rm -i` to provide confirmation & interactively remove
+
+Should the user choose to not back up a potentially overwritten file, the default copy command is `cp -i`.
+There's plenty opportunity to prevent data loss, unless specifically chosen not to.
+
+
+=== Portability
+Very few dependencies.
+
+Aside from a couple bash scripts you can easily clone, you'll probably have everything installed already.
+Anyone with bash >=4.2 and gawk/sed should be set.
+You don't have to download the entirety of Python3, or nonsense ruby gems.
+
+You're welcome.
+
+
+=== Logging & Troubleshooting
+Fairly comprehensive log output.
+
+Turn on log levels by passing `--debug LOW[,HIGH]`.
+Levels go from -1 (for absolute noise), to 3 (critical errors).
+
+Each run initially generates a '`RUN_ID`' (seconds since the epoch).
+The compiled files in _dist/_ are each named after the `$RUN_ID`, to match against specific logfile output.
+Allows for easier troubleshooting.
+
+
+== Why it do
+bash == best
+
+Using the language for things it was unequivocally not intended is a wonderful way to gain a deeper understanding of it.
+No one in their right mind would make a lexer in bash... so I had to.
+
+It incidentally keeps the footprint & dependencies small.
+
+
+== To do
+.Refactor & Bugfixes
+* [ ] '`Library`' files contain too many conflicting global variables when sourcing.
+      `PROGDIR` ends up being set to the path of the last-sourced file.
+      Several proposed solutions noted in the comments.
+
+* [ ] Require `--new` flag has a parameter
+
+
+.Features
+* [ ] CLI options:
+    ** [x] `--new` Automatically create the requisite directory structure
+    ** [x] `--clean` Remove >3 files from each dir in ./dist.
+    ** [ ] `--find` Echo path to the '`base`' of a specified search term
+
+* [ ] Re-work type :multiline and :text in `mk-conf.sh`, such that we can specify longer sections of text to drop in.
+      While specifying files in `./files/$NAME/additions/` may be a more elegant solution for long additions, 4-5 line chunks seem best via a :multiline entry.
+
+* [ ] Reporting.
+      Compile information during the run into a final report.
+      Use a trap to ensure the report is actually written on exits or failure.
+      Report should contain: 1) exit status, 2) run summary, 3) operations performed, 4) errors encountered.
+      Use `less -r` to show with color escapes enabled.
+
+* [ ] Easier option for files that don't have any processing required.
+      If it it something that's as simple as a 'cp' with no variables.
+
+* [ ] Create deployment script, move data to XDG_DATA_HOME or .local/share
+
+* [ ] Add `write` function. Similar to `debug`.
+      For writing necessary output to the terminal.
+      Will need to be quieted by `-q|--quiet`.
+
+* [ ] When stripping newlines, also consider situations of `$'\n'`, `$' '`, `$'\n'`.
+      Need a lookahead +2, or a lookbehind.
+
+* [ ] Maybe set up `fswatch` for auto-compiling files from base?
+
+
+.Done
+* [x] Tokenize new text that's entered from the config.cfg file, such that we can properly strip newlines.
+
+* [x] Diff previously generated files.
+      If there's no differences, no need to compile them again.
+      Best way to do this might be a dotfile within each `./dist/$NAME` with a md5sum of the base file, and the filename it's created.
+      Before running, we md5sum the '`base`' file, grep the list to see if there's an existing entry.
+
+* [x] Make consistent global variables for common paths.
+      The names should be straightforward, memorable, and obviously distinct to which directory they refer.
+
+* [x] Clean up terminology.
+      We're referring to '`base`' in like 3 different ways.
+      As with variables, things should have one (and only one) clear name.

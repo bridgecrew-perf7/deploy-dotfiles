@@ -48,6 +48,14 @@ trap 'printf $(tput sgr0) ; exit 0' INT
 #        local fname="$(basename "${BASH_SOURCE[@]}")"
 #        declare -n PROGDIR="${fname%.*}_PROGDIR"
 #     }
+#------------
+# Nvm, go with this garbage:
+#     declare -A "_${file}"
+#
+#     function foo {
+#        declare -n f="_$file"
+#        echo "${f[progdir]}"
+#     }
 
 __dependencies__=( mk-colors.sh mk-conf.sh )
 __dep_not_met__=()
@@ -65,7 +73,7 @@ for __dep__ in "${__dependencies__[@]}" ; do
    # as suggested in the comment(s) above. Re-defined @ 37j.
    PROGDIR="$( cd "$(dirname "${BASH_SOURCE[0]}")" ; pwd )"
    DATADIR="${PROGDIR}"
-   LIBDIR="${DATADIR}/lib" 
+   LIBDIR="${DATADIR}/lib"
 
    #─────────────────────────────( try source )─────────────────────────────────
    if [[ -e "${LIBDIR}/${__dep__}" ]] ; then
@@ -116,7 +124,6 @@ declare WORKING_NAME WORKING_DIR DIST_DIR
 # with token properties:
 declare -a TOKENS
 declare -i TOKEN_IDX=0
-declare LAST_CREATED_TOKEN
 
 # Error tracking:
 declare -a ERRORS_IN_VALIDATION
@@ -300,8 +307,8 @@ EOF
 function file_unmodified {
    local hash name
    local check="$(md5sum "${WORKING_DIR}/base" | awk '{print $1}')"
-   local database="${DIST_DIR}/.db" 
-   
+   local database="${DIST_DIR}/.db"
+
    [[ ! -e "$database" ]] && return 1
 
    read -r hash name < <(grep "$check" "$database")
@@ -345,7 +352,6 @@ function Token {
    # dynamic name:
    declare -gA $tname
    declare -n t=$tname
-   LAST_CREATED_TOKEN=$tname
 
    t[type]="$type"
    t[value]="$value"
@@ -445,7 +451,7 @@ function munch {
          quiet)   # do not warn, leave text as is
                   Token 'TEXT' "${token[value]}"
                   ;;
-                  
+
          warn)    # warn user, leave text as is
                   debug 2 "Token ${WORKING_NAME}.${class}.${token[value]} not found in config"
                   Token 'TEXT' "${token[value]}"
@@ -482,7 +488,7 @@ function strip_comments {
 
       if [[ "${token[type]}" == 'TEXT' ]] ; then
          token[value]="${token[value]%%${cchar}*}"
-         
+
          # Can't just unset the token, or we can no longer iterate over the
          # array by index. We need to pull the array apart, unset the token,
          # then put it back together.
@@ -574,7 +580,7 @@ function build {
 
    # Saves hash of the base file, with pointer to the compiled file. Allows us
    # to check if the file is unmodified since the last run.
-   local db_entry="$(md5sum "${WORKING_DIR}/base" | awk '{print $1}') ${RUNID}" 
+   local db_entry="$(md5sum "${WORKING_DIR}/base" | awk '{print $1}') ${RUNID}"
    echo "$db_entry" >> "${DIST_DIR}/.db"
 }
 
@@ -616,7 +622,7 @@ function deploy {
    [[ "$_dest" =~ ^~ ]] && _dest="${_dest/$'~'/${HOME}}"
 
    local destination="${_dest}/$(base name)"
-   [[ -e "$destination" ]] && backup_existing "$destination" 
+   [[ -e "$destination" ]] && backup_existing "$destination"
 
    debug 1 "Deploying '$dist_file' to '$destination' via cmd '$cmd'"
    $cmd "$dist_file" "$destination"
@@ -646,6 +652,10 @@ while [[ $# -gt 0 ]] ; do
 
       -n|--new)
             shift
+            if [[ -z "$1" ]] ; then
+               debug 3 "opt(--new) requires a PATH"
+               exit 1
+            fi
             __full_path__="$1"
             create_base_config
             exit 0 ;;
@@ -674,7 +684,7 @@ mkdir -p "${DATADIR}"/{backup,files,dist}
 #───────────────────────────────────( main )────────────────────────────────────
 for WORKING_NAME in $(ls "${DATADIR}/files") ; do
    # Reset global variables on each run:
-   TOKENS=() ; TOKEN_IDX=0 ; LAST_CREATED_TOKEN=
+   TOKENS=() ; TOKEN_IDX=0
    WORKING_DIR="${DATADIR}/files/${WORKING_NAME}"
    DIST_DIR="${DATADIR}/dist/${WORKING_NAME}"
 
@@ -690,7 +700,7 @@ for WORKING_NAME in $(ls "${DATADIR}/files") ; do
    fi
 
    file_unmodified && continue
-   # If this base has already been compiled, deploy 
+   # If this base has already been compiled, deploy
 
    load_config ; [[ $? -ne 0 ]] && continue
    # Loads 1) options file, 2) global config, 3) local config
@@ -701,7 +711,7 @@ for WORKING_NAME in $(ls "${DATADIR}/files") ; do
    deploy
    # Reads tokens, makes files
 
-   #debug_output
-   debug_tokens
+   #debug_tokens
+   debug_output
    # Reads tokens, prints compilation
 done
