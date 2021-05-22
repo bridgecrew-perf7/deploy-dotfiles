@@ -1,0 +1,18 @@
+. dependencies
+  .. 'intelligent' sourcing
+  .. specific error reporting
+. variable debug levels
+. lexer & parser
+  .. easily extensible through adding new tokens
+  .. nifty methodology
+. global & local config, can fine tune
+  .. configuration
+  .. deployment
+  .. error handling
+. prevent unncessary compilation if 'base' was unmodified
+. per run identifier
+  .. ./dist/ files named after runID, can pair to log output easily
+  .. when troubleshooting, can determine which 'batch' files are from
+. CLI options to simplify common tasks
+  .. cleaning ./dist/ directory & associated .db files
+  .. initial file creation when working on a new dotfile
