@@ -23,92 +23,17 @@
 trap 'printf $(tput sgr0)' EXIT
 trap 'printf $(tput sgr0) ; exit 0' INT
 
-#───────────────────────────────( dependencies )────────────────────────────────
-# Still running into a problem when importing... my common variables are reset
-# every time. Can take the approach I do in Python when sourcing things...
-# nothing should just be in-line. Wrap everything in functions. The bash equiv
-# of a `if __name__ == '__main__'` is `[[ ${0} == ${BASH_SOURCE[0]} ]]`.
-# Could save & restore the values... as we would with the registers and stack in
-# assembly:
-#     unset _PROGDIR ; _PROGDIR="${PROGDIR}"                   # Start
-#     PROGDIR=$( cd $(dirname "${BASH_SOURCE[0]}") ; pwd )     # Define
-#     ...                                                      # Do stuff
-#     PROGDIR="${_PROGDIR}" ; unset _PROGDIR                   # End
-# Or could do it with namerefs? Make an 'init' function in each file that will
-# establish a series of variables named after the file name. Then only call via
-# local namerefs back to the name-declared progdir:
-#     function init {
-#        local PROGDIR=$( cd $(dirname "${BASH_SOURCE[0]}") ; pwd )
-#        local fname="$(basename "${BASH_SOURCE[@]}")"
-#        declare -g "${fname%.*}_PROGDIR"="${PROGDIR}"
-#     }
-#
-# Then call with:
-#     function foo {
-#        local fname="$(basename "${BASH_SOURCE[@]}")"
-#        declare -n PROGDIR="${fname%.*}_PROGDIR"
-#     }
-#------------
-# Nvm, go with this garbage:
-#     declare -A "_${file}"
-#
-#     function foo {
-#        declare -n f="_$file"
-#        echo "${f[progdir]}"
-#     }
-
-__dependencies__=( mk-colors.sh mk-conf.sh )
-__dep_not_met__=()
-
-for __dep__ in "${__dependencies__[@]}" ; do
-   #───────────────────────────( already sourced )──────────────────────────────
-   # If we've already sourced this dependency, its respective __sourced_XX var
-   # will be set. Don't re-source. Continue.
-   _dep="${__dep__%.*}"
-   __dep_sourcename__="__source_${_dep//[^[:alnum:]]/_}__"
-   [[ -n "${!__dep_sourcename__}" ]] && continue
-
-   # Gotta define this nonsense in the loop, as it'll be be overwritten from
-   # each file that we source. Need to come up with a better solution to this,
-   # as suggested in the comment(s) above. Re-defined @ 37j.
-   PROGDIR="$( cd "$(dirname "${BASH_SOURCE[0]}")" ; pwd )"
-   DATADIR="${PROGDIR}"
-   LIBDIR="${DATADIR}/lib"
-
-   #─────────────────────────────( try source )─────────────────────────────────
-   if [[ -e "${LIBDIR}/${__dep__}" ]] ; then
-      source "${LIBDIR}/${__dep__}"
-   elif [[ $(which ${__dep__} 2>/dev/null) ]] ; then
-      # Else try to source if the file is found in our $PATH
-      source "$(which ${__dep__})"
-   else
-      # Else failed to source. Append to list for tracking.
-      __dep_not_met__+=( "$__dep__" )
-   fi
-done
-
-if [[ ${#__dep_not_met__} -gt 0 ]] ; then
-   # If colors have been sourced, pretty-print output
-   if [[ -n $__source_colors__ ]] ; then
-      echo -n "[${bl}$(basename "${BASH_SOURCE[@]}")${rst}] ${brd}ERROR${rst}: "
-   # ELse just regular plain-print it. :(
-   else
-      echo -n "[$(basename "${BASH_SOURCE[@]}")] ERROR: "
-   fi
-
-   echo "Failed to source: [${__dep_not_met__[@]}]"
-   echo " + clone from @hre-utils"
-
+# Source dependencies:
+source $(which hre-lib-import.sh) 2>/dev/null || {
+   echo "hre-lib-import.sh not found in \$PATH. Exiting."
    exit 1
-fi
+}
+
+.import colors mkconf || exit 1
 
 #──────────────────────────────────( global )───────────────────────────────────
-# TODO: This is for testing, so everything can stay in the same directory. Will
-#       eventually move over to it's home to ~/.local/share
-#declare -g DATADIR="${XDG_DATA_HOME:-${HOME}/.local/share}/hre-utils/deploy-dotfiles"
-#mkdir -p "$DATADIR"
-declare -g PROGDIR="$( cd "$(dirname "${BASH_SOURCE[0]}")" ; pwd )"
-declare -g DATADIR="${PROGDIR}"
+declare -g DATADIR="${XDG_DATA_HOME:-${HOME}/.local/share}/hre-utils/deploy-dotfiles"
+declare -g CONFDIR="${XDG_DATA_HOME:-${HOME}/.config}/hre-utils/deploy-dotfiles"
 
 # Used in logging, and temp filename generation in ./dist/. Allows us to pair
 # a section in a report/logfile with a particular generated filed.
@@ -139,7 +64,7 @@ declare -a REP_BUILD_STATUS
 declare -a REP_DEPLOY_STATUS
 
 # Global configuration file
-declare -g GLOBAL_CONF="${DATADIR}/config.cfg"
+declare -g GLOBAL_CONF="${CONFDIR}/config.cfg"
 
 #─────────────────────( logging, printing, and debugging )──────────────────────
 function debug {
@@ -208,7 +133,9 @@ Options:
 
 Commands:
    -c | --clean NUMBER      purges ./dist, maintaining NUMBER entries
-   -n | --new PATH          inits new base directory, copying PATH if exists
+   -f | --find  REGEX       echo path to base file given REGEX search for name
+   -g | --git   COMMAND     runs git command within DATADIR
+   -n | --new   PATH        inits new base directory, copying PATH if exists
 EOF
 
 exit $1
@@ -262,9 +189,11 @@ function load_config {
 
 
 function create_base_config {
+   local input_path="$1"
+
    # Sets directory name after stripping the suffix and leading '.'
-   local destination="$(dirname "$__full_path__")"
-   local name="$(basename "$__full_path__")"
+   local destination="$(dirname "$input_path")"
+   local name="$(basename "$input_path")"
    local wdir_name="${name%.*}"
    [[ "$wdir_name" =~ ^\.?(.*) ]] && wdir_name="${BASH_REMATCH[1]}"
 
@@ -296,8 +225,8 @@ destination=$destination
 key=value
 EOF
 
-   if [[ -e "$__full_path__" ]] ; then
-      cp -iv "$__full_path__" "$new_basefile"
+   if [[ -e "$input_path" ]] ; then
+      cp -iv "$input_path" "$new_basefile"
    fi
 
    touch "$new_basefile"
@@ -333,6 +262,11 @@ function clean_dist {
          [[ -e "$db" ]] && sed -i "/${file}/d" "$db"
       done
    done
+}
+
+
+function find_path {
+   find "${DATADIR}"/files/*/base -iregex "${DATADIR}/files/.*${1}.*/base"
 }
 
 
@@ -656,8 +590,16 @@ while [[ $# -gt 0 ]] ; do
                debug 3 "opt(--new) requires a PATH"
                exit 1
             fi
-            __full_path__="$1"
-            create_base_config
+            create_base_config "$1"
+            exit 0 ;;
+
+      -f|--find)
+            shift
+            if [[ -z "$1" ]] ; then
+               debug 3 "opt(--find) requires a NAME"
+               exit 1
+            fi
+            find_path "$1"
             exit 0 ;;
 
       -c|--clean)
@@ -665,12 +607,22 @@ while [[ $# -gt 0 ]] ; do
             clean_dist ${1:-3}
             exit 0 ;;
 
+      -g|--git)
+            shift
+            git -C "$DATADIR" "$@"
+            exit $?  ;;
+
       *)    __invalid__+=( $1 )
             shift ;;
    esac
 done
 
 #─────────────────────────────────( validate )──────────────────────────────────
+if [[ ${#__invalid__[@]} -gt 0 ]] ; then
+   debug 3 "Invalid option(s): ${__invalid__[@]}"
+   usage 1
+fi
+
 if [[ -e "${GLOBAL_CONF}" ]] ; then
    .load-conf "${GLOBAL_CONF}"
 else
@@ -688,22 +640,18 @@ for WORKING_NAME in $(ls "${DATADIR}/files") ; do
    WORKING_DIR="${DATADIR}/files/${WORKING_NAME}"
    DIST_DIR="${DATADIR}/dist/${WORKING_NAME}"
 
-   if [[ ! -e "${WORKING_DIR}/base" ]] ; then
-      debug 2 "No \`base\` file found in ${WORKING_DIR}"
-      continue
-   else
-      fdata="$(cat "${WORKING_DIR}/base")"
-      # XXX: Don't love this approach, it makes things less clean than simply
-      #      using redirection in the 'while read' loop when lexing. Though this
-      #      does allow us to use the lexer on regular string inputs, and re-lex
-      #      the subsisted variable data.
-   fi
-
    file_unmodified && continue
    # If this base has already been compiled, deploy
 
    load_config ; [[ $? -ne 0 ]] && continue
    # Loads 1) options file, 2) global config, 3) local config
+
+   if [[ ! -e "${WORKING_DIR}/base" ]] ; then
+      debug 2 "No \`base\` file found in ${WORKING_DIR}"
+      continue
+   else
+      fdata="$(cat "${WORKING_DIR}/base")"
+   fi
 
    lex "$fdata" ; parse
    # Reads characters, makes tokens. Read tokens, fills in keys

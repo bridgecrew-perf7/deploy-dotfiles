@@ -1,8 +1,0 @@
-" Begin ~/.vimrc
-" New comment
-set softtabstop=3
-set {{shiftwidth}}
-set {{tabstop}}
-
-set expandtab
-{{eof}}

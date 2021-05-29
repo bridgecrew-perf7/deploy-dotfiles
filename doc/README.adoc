@@ -36,7 +36,7 @@ After parsing it's linked to the destination.
 #  1. General deps:
 $ sudo apt-get update -y
 $ sudo apt-get upgrade -y
-$ sudo apt-get install gawk sed
+$ sudo apt-get install gawk sed git
 
 #  2. My deps:
 $ git clone https://github.com/hre-utils/mk-conf
@@ -213,20 +213,7 @@ It incidentally keeps the footprint & dependencies small.
 
 
 == To do
-.Refactor & Bugfixes
-* [ ] '`Library`' files contain too many conflicting global variables when sourcing.
-      `PROGDIR` ends up being set to the path of the last-sourced file.
-      Several proposed solutions noted in the comments.
-
-* [ ] Require `--new` flag has a parameter
-
-
 .Features
-* [ ] CLI options:
-    ** [x] `--new` Automatically create the requisite directory structure
-    ** [x] `--clean` Remove >3 files from each dir in ./dist.
-    ** [ ] `--find` Echo path to the '`base`' of a specified search term
-
 * [ ] Re-work type :multiline and :text in `mk-conf.sh`, such that we can specify longer sections of text to drop in.
       While specifying files in `./files/$NAME/additions/` may be a more elegant solution for long additions, 4-5 line chunks seem best via a :multiline entry.
 
@@ -239,19 +226,32 @@ It incidentally keeps the footprint & dependencies small.
 * [ ] Easier option for files that don't have any processing required.
       If it it something that's as simple as a 'cp' with no variables.
 
-* [ ] Create deployment script, move data to XDG_DATA_HOME or .local/share
-
 * [ ] Add `write` function. Similar to `debug`.
       For writing necessary output to the terminal.
       Will need to be quieted by `-q|--quiet`.
 
-* [ ] When stripping newlines, also consider situations of `$'\n'`, `$' '`, `$'\n'`.
+* [ ] When stripping newlines, also consider situations of `$'\n'`, `$' '`.
       Need a lookahead +2, or a lookbehind.
 
 * [ ] Maybe set up `fswatch` for auto-compiling files from base?
 
 
 .Done
+* [x] Create deployment script, move data to XDG_DATA_HOME or .local/share
+
+* [x] CLI options:
+    ** [x] `--new` Automatically create the requisite directory structure
+    ** [x] `--clean` Remove >3 files from each dir in ./dist.
+    ** [x] `--find` Echo path to the '`base`' of a specified search term
+
+* [x] '`Library`' files contain too many conflicting global variables when sourcing.
+      `PROGDIR` ends up being set to the path of the last-sourced file.
+      Several proposed solutions noted in the comments.
+
+* [x] Require `--new` flag has a parameter
+
+* [x] Use new & improved `import.sh` for dependencies
+
 * [x] Tokenize new text that's entered from the config.cfg file, such that we can properly strip newlines.
 
 * [x] Diff previously generated files.
