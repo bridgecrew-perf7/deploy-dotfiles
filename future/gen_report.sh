@@ -37,7 +37,7 @@ for rname in "${!RESULTS_FILE_LIST[@]}" ; do
       rv+="\t${color}${symbol}${rst}"
    done
 
-   res+="\n$rv"
+   res+="$rv"
 done
 
 col=$(echo -e "$res" | column -t -s $'\t')

@@ -9,6 +9,7 @@
 #  2021-05-18  :: Standardized variable names, added 'base' diffing so we don't
 #                 re-run on already compiled files.
 #  2021-05-20  :: Added tokenizing of input values, and better dep sourcing
+#  2021-05-29  :: Utilizing .import for dependencies, renamed to remove suffix
 
 #═══════════════════════════════════╡ BEGIN ╞═══════════════════════════════════
 #──────────────────────────────────( prereqs )──────────────────────────────────
@@ -60,8 +61,7 @@ declare -a ERR_MISSING_REQUIRED_CONFIG_KEY
 declare -a ERR_MISSING_REQUIRED_CONFIG_SECTION
 
 # Reports generation:
-declare -a REP_BUILD_STATUS
-declare -a REP_DEPLOY_STATUS
+declare -A REPORT_LIST  # {dirname: generated_map_name}
 
 # Global configuration file
 declare -g GLOBAL_CONF="${CONFDIR}/config.cfg"
@@ -118,8 +118,77 @@ function debug_output {
 }
 
 
-#function report {
-#}
+function init_reporting {
+   report_name="report_${WORKING_NAME}"
+   declare -gA "$report_name"
+   declare -gn r="$report_name"
+
+   REPORT_LIST[$WORKING_NAME]="$report_name"
+
+   for stage in lex parse build deploy ; do
+      r[$stage]=1
+   done
+}
+
+
+function report {
+   #────────────────────────────────( table )───────────────────────────────────
+   # Build heading row:
+   local table=''
+   for stage in '' lex parse build deploy ; do
+      table+="${table:+\t}${bwh}${stage}${rst}"
+   done
+
+   # Data rows:
+   for rname in "${!REPORT_LIST[@]}" ; do
+      declare -n map="${REPORT_LIST[$rname]}"
+      local rv="${bwh}${rname}${rst}"
+      for stage in lex parse build deploy ; do
+         case ${map[$stage]} in
+            0) symbol="✔" ; color="${gr}" ;;
+            1) symbol="✘" ; color="${rd}" ;;
+            2) symbol="●" ; color="${cy}" ;;
+         esac
+         rv+="${rv:+$'\t'}${color}${symbol}${rst}"
+      done
+      table+="${table:+$'\n'}$rv"
+   done
+
+   # Columnize:
+   table=$(echo -e "$table" | column -t -s $'\t')
+
+   #──────────────────────────────( summary  )──────────────────────────────────
+   declare -i total=${#REPORT_LIST[@]} 
+   declare -i build_success=$total
+   declare -i deploy_success=$total
+
+   for rname in "${!REPORT_LIST[@]}" ; do
+      declare -n map="${REPORT_LIST[$rname]}"
+
+      [[ ${map[build]}  -ne 0 ]] && ((build_success--))
+      [[ ${map[deploy]} -ne 0 ]] && ((deploy_success--))
+   done
+
+   [[ $build_success  -eq $total ]] && bcolor="${bgr}" || bcolor="${brd}"
+   [[ $deploy_success -eq $total ]] && dcolor="${bgr}" || dcolor="${brd}"
+
+   #───────────────────────────( write & display )──────────────────────────────
+   local report_file="${DATADIR}/reports/${RUNID}"
+
+   cat <<EOF > "$report_file"
+──────────────────────────────────( overview )──────────────────────────────────
+built:    ${bcolor}${build_success}/$total${rst}
+deployed: ${dcolor}${deploy_success}/${total}${rst}
+
+$table
+
+(legend: success ${gr}✔${rst}, failure ${rd}✘${rst}, skipped ${cy}●${rst})
+EOF
+
+   #less -r "$report_file"
+   cat "$report_file"
+}
+
 
 #───────────────────────────────────( utils )───────────────────────────────────
 function usage {
@@ -199,7 +268,12 @@ function create_base_config {
 
    # Create new working directory:
    local new_wdir="${DATADIR}/files/${wdir_name}"
-   mkdir -pv "$new_wdir"
+   if [[ -d "${new_wdir}" ]] ; then
+      debug 2 "$input_path already exists in files/"
+      return 1
+   else
+      mkdir -pv "$new_wdir"
+   fi
 
    # Paths to new base & config files:
    local new_basefile="${new_wdir}/base"
@@ -243,8 +317,14 @@ function file_unmodified {
    read -r hash name < <(grep "$check" "$database")
    [[ -z "$name" ]] && return 1
 
-   debug 1 "${WORKING_NAME} already processed as ${WORKING_NAME}/$name"
-   #echo "$name"
+   debug 0 "${WORKING_NAME} already processed as ${WORKING_NAME}/$name"
+
+   # Mark as (2) 'skipped':
+   declare -n r="report_${WORKING_NAME}"
+   for stage in lex parse build deploy ; do
+      r[$stage]=2
+   done
+
    return 0
 }
 
@@ -268,7 +348,6 @@ function clean_dist {
 function find_path {
    find "${DATADIR}"/files/*/base -iregex "${DATADIR}/files/.*${1}.*/base"
 }
-
 
 #═══════════════════════════════════╡ LEXER ╞═══════════════════════════════════
 function Token {
@@ -338,6 +417,9 @@ function lex {
 
       idx=$(( idx+1 ))
    done
+
+   # If successful, save success '0' exit status
+   declare -n r="report_${WORKING_NAME}" ; r[lex]=0
 }
 
 #══════════════════════════════════╡ PARSER ╞═══════════════════════════════════
@@ -487,6 +569,8 @@ function parse {
 
    [[ $strip_comments =~ ([Tt]rue|[Yy]es) ]] && strip_comments
    [[ $strip_newlines =~ ([Tt]rue|[Yy]es) ]] && strip_newlines
+
+   declare -n r="report_${WORKING_NAME}" ; r[parse]=0
 }
 
 
@@ -516,6 +600,8 @@ function build {
    # to check if the file is unmodified since the last run.
    local db_entry="$(md5sum "${WORKING_DIR}/base" | awk '{print $1}') ${RUNID}"
    echo "$db_entry" >> "${DIST_DIR}/.db"
+
+   declare -n r="report_${WORKING_NAME}" ; r[build]=0
 }
 
 
@@ -549,7 +635,10 @@ function deploy {
    local dist_file="${DIST_DIR}/$RUNID"
 
    build "$dist_file"
-   $__build_only__ && return 0
+   if $__build_only__ ; then
+      declare -n r="report_${WORKING_NAME}" ; r[deploy]=2
+      return 0
+   fi
 
    local _dest="$(base destination)"
    local _dest="${_dest%/}"
@@ -560,6 +649,8 @@ function deploy {
 
    debug 1 "Deploying '$dist_file' to '$destination' via cmd '$cmd'"
    $cmd "$dist_file" "$destination"
+
+   declare -n r="report_${WORKING_NAME}" ; r[deploy]=0
 }
 
 #═══════════════════════════════════╡ MAIN ╞════════════════════════════════════
@@ -640,6 +731,9 @@ for WORKING_NAME in $(ls "${DATADIR}/files") ; do
    WORKING_DIR="${DATADIR}/files/${WORKING_NAME}"
    DIST_DIR="${DATADIR}/dist/${WORKING_NAME}"
 
+   init_reporting
+   # Creates associative array to track reporting
+
    file_unmodified && continue
    # If this base has already been compiled, deploy
 
@@ -660,6 +754,8 @@ for WORKING_NAME in $(ls "${DATADIR}/files") ; do
    # Reads tokens, makes files
 
    #debug_tokens
-   debug_output
+   #debug_output
    # Reads tokens, prints compilation
 done
+
+report
